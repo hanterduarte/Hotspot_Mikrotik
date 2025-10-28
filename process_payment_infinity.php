@@ -86,7 +86,6 @@ try {
         logEvent('payment_error', "Erro ao criar link de checkout InfinitePay: " . $result['message'], $transactionId);
         jsonResponse(false, 'Erro ao criar pedido de pagamento: ' . $result['message']);
     }
-    
 } catch (Exception $e) {
     if (isset($db) && $db->inTransaction()) {
         $db->rollBack();
@@ -94,4 +93,5 @@ try {
     logEvent('payment_exception', $e->getMessage());
     jsonResponse(false, 'Erro ao processar a requisição: ' . $e->getMessage());
 }
+
 ?>

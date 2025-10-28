@@ -659,7 +659,7 @@ $plans = $stmt->fetchAll();
             document.getElementById('errorMessage').classList.remove('active');
 
             try {
-                const response = await fetch('process_payment_infinity', {
+                const response = await fetch('process_payment_infinity.php', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
