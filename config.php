@@ -9,7 +9,7 @@ define('DB_PASS', '');
 define('DB_CHARSET', 'utf8mb4');
 
 // Configurações do Sistema
-define('BASE_URL', 'https://wifibarato.maiscoresed.com.br/hotspot');  // Ajuste conforme seu ambiente
+define('BASE_URL', 'https://wifibarato.maiscoresed.com.br'); // Ajuste conforme seu ambiente
 define('TIMEZONE', 'America/Recife');
 
 // Configurar timezone
@@ -161,34 +161,6 @@ function jsonResponse($success, $message, $data = null) {
         'data' => $data
     ]);
     exit;
-}
-
-// Função para criar ou buscar cliente
-function createOrGetCustomer($db, $customerData) {
-    $name = $customerData['name'];
-    $email = $customerData['email'];
-    $phone = $customerData['phone'];
-    $cpf = $customerData['cpf'];
-
-    // Verificar se cliente já existe
-    $stmt = $db->prepare("SELECT id FROM customers WHERE email = ?");
-    $stmt->execute([$email]);
-    $customer = $stmt->fetch();
-    
-    if ($customer) {
-        $customerId = $customer['id'];
-        
-        // Atualizar dados do cliente
-        $stmt = $db->prepare("UPDATE customers SET name = ?, phone = ?, cpf = ? WHERE id = ?");
-        $stmt->execute([$name, $phone, $cpf, $customerId]);
-    } else {
-        // Criar novo cliente
-        $stmt = $db->prepare("INSERT INTO customers (name, email, phone, cpf) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$name, $email, $phone, $cpf]);
-        $customerId = $db->lastInsertId();
-    }
-    
-    return $customerId;
 }
 
 // Tratamento de erros
