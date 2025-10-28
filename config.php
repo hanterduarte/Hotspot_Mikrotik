@@ -95,6 +95,33 @@ function logEvent($type, $message, $related_id = null) {
     }
 }
 
+// Função para criar ou obter um cliente
+function createOrGetCustomer($db, $customerData) {
+    // 1. Tenta encontrar o cliente pelo email
+    $stmt = $db->prepare("SELECT id FROM customers WHERE email = ?");
+    $stmt->execute([$customerData['email']]);
+    $customer = $stmt->fetch();
+
+    if ($customer) {
+        // Cliente encontrado, retorna o ID
+        return $customer['id'];
+    } else {
+        // 2. Cliente não encontrado, cria um novo
+        $stmt = $db->prepare("
+            INSERT INTO customers (name, email, phone, cpf) 
+            VALUES (?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $customerData['name'],
+            $customerData['email'],
+            $customerData['phone'],
+            $customerData['cpf']
+        ]);
+        // Retorna o ID do novo cliente
+        return $db->lastInsertId();
+    }
+}
+
 // Função para gerar username único
 function generateUsername($prefix = 'user') {
     return $prefix . '_' . date('YmdHis') . rand(100, 999);
