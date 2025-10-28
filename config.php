@@ -9,7 +9,7 @@ define('DB_PASS', '');
 define('DB_CHARSET', 'utf8mb4');
 
 // Configurações do Sistema
-define('BASE_URL', 'https://wifibarato.maiscoresed.com.br/hotspot');  // Ajuste conforme seu ambiente
+define('BASE_URL', 'https://wifibarato.maiscoresed.com.br');  // Ajuste conforme seu ambiente
 define('TIMEZONE', 'America/Recife');
 
 // Configurar timezone
