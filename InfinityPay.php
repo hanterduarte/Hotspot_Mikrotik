@@ -68,8 +68,8 @@ class InfinityPay {
         // O 'order_nsu' é o identificador único do seu sistema
         $orderNsu = strval($transactionId);
 
-        // A redirect_url envia o cliente para uma página de verificação após o pagamento
-        $redirectUrl = BASE_URL . "/check_payment_status.php?transaction_id=" . $orderNsu;
+        // A redirect_url volta para sua página de sucesso, levando a referência interna
+        $redirectUrl = BASE_URL . "/payment_success.php?external_reference=" . $orderNsu;
 
         // A webhook_url notifica o seu sistema sobre a mudança de status
         $webhookUrl = BASE_URL . "/webhook_infinitypay.php";

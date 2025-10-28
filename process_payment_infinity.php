@@ -3,24 +3,13 @@
 
 require_once 'config.php';
 require_once 'InfinityPay.php';
+// OBS: A função createOrGetCustomer() deve estar disponível via config.php
 
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonResponse(false, 'Método não permitido');
 }
-
-// DIAGNÓSTICO: Verificar se o handle da InfinitePay está configurado ANTES de tudo
-try {
-    $infinitepayHandle = getSetting('infinitepay_handle');
-    if (empty($infinitepayHandle)) {
-        jsonResponse(false, 'Configuração "infinitepay_handle" não encontrada no banco de dados. Por favor, adicione-a à tabela `settings`.');
-    }
-} catch (Exception $e) {
-    logEvent('payment_exception', 'Erro Crítico ao buscar configuração "infinitepay_handle": ' . $e->getMessage());
-    jsonResponse(false, 'Erro Crítico ao buscar configuração do sistema: ' . $e->getMessage());
-}
-
 
 $input = json_decode(file_get_contents('php://input'), true);
 
@@ -58,6 +47,7 @@ try {
 
     // 3. Criar ou buscar cliente
     $customerData = ['name' => $name, 'email' => $email, 'phone' => $phone, 'cpf' => $cpf];
+    // **Assumindo que createOrGetCustomer existe e retorna o customerId**
     $customerId = createOrGetCustomer($db, $customerData);
 
     // 4. Criar a transação inicial (status: pending)
@@ -76,9 +66,17 @@ try {
     if ($result['success']) {
         $redirectUrl = $result['url'];
 
+        // 6. Atualizar transação com a referência externa (order_nsu)
+        $stmt = $db->prepare("UPDATE transactions SET infinitypay_order_id = ? WHERE id = ?");
+        $stmt->execute([
+            strval($transactionId),
+            $transactionId
+        ]);
+
         $db->commit();
         logEvent('payment_created', "Link de Checkout InfinitePay criado. Transaction ID: $transactionId");
 
+        // 7. Retornar a URL de redirecionamento para o JavaScript
         jsonResponse(true, 'Redirecionando para o Checkout da InfinitePay', [
             'redirect_url' => $redirectUrl
         ]);
@@ -93,7 +91,7 @@ try {
     if (isset($db) && $db->inTransaction()) {
         $db->rollBack();
     }
-    logEvent('payment_exception', 'Exceção no process_payment_infinity: ' . $e->getMessage());
+    logEvent('payment_exception', $e->getMessage());
     jsonResponse(false, 'Erro ao processar a requisição: ' . $e->getMessage());
 }
 ?>

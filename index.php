@@ -516,8 +516,7 @@ $plans = $stmt->fetchAll();
             document.getElementById('errorMessage').classList.remove('active');
 
             try {
-                const baseUrl = '<?php echo BASE_URL; ?>';
-                const response = await fetch(`${baseUrl}/process_payment_infinity.php`, {
+                const response = await fetch('process_payment.php', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
