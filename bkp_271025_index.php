@@ -327,7 +327,6 @@ $plans = $stmt->fetchAll();
         <div class="intro-box">
             <h2>Olá! Acesso à internet rápido e barato para você.</h2>
             <p>Nossa missão é democratizar o acesso à internet de alta velocidade. Oferecemos uma conexão ágil e de baixo custo, ideal para quem precisa navegar, trabalhar ou se divertir online, sem a burocracia das operadoras tradicionais.</p>
-            <p>Conecte-se com planos de curta duração ou escolha nosso plano mensal, ideal para quem busca uma solução completa sem a necessidade de contratos de fidelidade.</p>
         </div>
 
         <!-- Seleção de Planos -->
@@ -349,23 +348,6 @@ $plans = $stmt->fetchAll();
                 </div>
                 <?php endforeach; ?>
             </div>
-
-            <div class="intro-box" style="margin-top: 40px;">
-                <h3 style="text-align: center; color: #1e88e5; margin-bottom: 20px;">Informações Importantes</h3>
-                <p><strong>Conexão de Alta Performance e Transparência</strong></p>
-                <p>Em qualquer plano que você escolher, a sua velocidade de conexão será a mais rápida que estiver disponível no momento, sem limites de banda ou download. É importante lembrar que, em algumas situações, a conexão pode sofrer quedas ou limitações devido à distância entre você e o ponto de acesso, ou à quantidade de dispositivos conectados na mesma área. Garantimos o nosso melhor para que sua experiência seja sempre a mais fluida possível.</p>
-            </div>
-
-            <div class="intro-box" style="margin-top: 20px;">
-                <h3 style="text-align: center; color: #1e88e5; margin-bottom: 20px;">Contato e Suporte</h3>
-                <p><strong>Conexão Rápida, Estabilidade Garantida.</strong></p>
-                <p>O nosso hotspot é a solução ideal para uma navegação prática e rápida. No entanto, se você busca uma internet com ainda mais qualidade, estabilidade e velocidade, entre em contato para solicitar uma análise de viabilidade de conexão via rádio. Nossa equipe está pronta para avaliar a melhor solução para você.</p>
-                <p style="margin-top: 15px;"><strong>Fale conosco:</strong></p>
-                <ul style="list-style: none; padding-left: 0; margin-top: 10px;">
-                    <li><strong>Telefone e WhatsApp:</strong> (81) 99818-1680</li>
-                    <li><strong>E-mail:</strong> hanter.duarte@gmail.com</li>
-                </ul>
-            </div>
         </div>
 
         <!-- Formulário de Cadastro e Pagamento -->
@@ -381,22 +363,22 @@ $plans = $stmt->fetchAll();
 
                 <div class="form-group">
                     <label for="name">Nome Completo *</label>
-                    <input type="text" id="name" name="name" autocomplete="name" required>
+                    <input type="text" id="name" name="name" required>
                 </div>
 
                 <div class="form-group">
                     <label for="email">E-mail *</label>
-                    <input type="email" id="email" name="email" autocomplete="email" required>
+                    <input type="email" id="email" name="email" required>
                 </div>
 
                 <div class="form-group">
                     <label for="phone">Telefone/WhatsApp *</label>
-                    <input type="tel" id="phone" name="phone" autocomplete="tel" placeholder="(00) 00000-0000" required>
+                    <input type="tel" id="phone" name="phone" placeholder="(00) 00000-0000" required>
                 </div>
 
                 <div class="form-group">
                     <label for="cpf">CPF *</label>
-                    <input type="text" id="cpf" name="cpf" autocomplete="off" placeholder="000.000.000-00" required>
+                    <input type="text" id="cpf" name="cpf" placeholder="000.000.000-00" required>
                 </div>
 
                 <h4 style="margin: 25px 0 15px; color: #333;">Escolha a forma de pagamento:</h4>
@@ -516,8 +498,7 @@ $plans = $stmt->fetchAll();
             document.getElementById('errorMessage').classList.remove('active');
 
             try {
-                const baseUrl = '<?php echo BASE_URL; ?>';
-                const response = await fetch(`${baseUrl}/process_payment_infinity.php`, {
+                const response = await fetch('process_payment.php', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -527,21 +508,12 @@ $plans = $stmt->fetchAll();
 
                 const result = await response.json();
 
-                console.log('Resposta do servidor:', result); // Debug
-
                 if (result.success) {
-                    // PIX - redirecionar para página com QR Code
-                    if (result.data && result.data.payment_id) {
-                        window.location.href = 'pix_payment.php?payment_id=' + result.data.payment_id;
-                    }
-                    // Checkout - redirecionar para Mercado Pago
-                    else if (result.data && result.data.redirect_url) {
-                        window.location.href = result.data.redirect_url;
-                    }
-                    else {
-                        showError('Erro: resposta inválida do servidor');
-                        document.getElementById('loading').classList.remove('active');
-                        document.getElementById('paymentForm').style.display = 'block';
+                    if (result.redirect_url) {
+                        window.location.href = result.redirect_url;
+                    } else if (result.qr_code) {
+                        // Mostrar PIX
+                        window.location.href = 'pix_payment.php?payment_id=' + result.payment_id;
                     }
                 } else {
                     showError(result.message || 'Erro ao processar pagamento');
