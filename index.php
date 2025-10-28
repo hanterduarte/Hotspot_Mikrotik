@@ -327,6 +327,7 @@ $plans = $stmt->fetchAll();
         <div class="intro-box">
             <h2>Olá! Acesso à internet rápido e barato para você.</h2>
             <p>Nossa missão é democratizar o acesso à internet de alta velocidade. Oferecemos uma conexão ágil e de baixo custo, ideal para quem precisa navegar, trabalhar ou se divertir online, sem a burocracia das operadoras tradicionais.</p>
+            <p>Conecte-se com planos de curta duração ou escolha nosso plano mensal, ideal para quem busca uma solução completa sem a necessidade de contratos de fidelidade.</p>
         </div>
 
         <!-- Seleção de Planos -->
@@ -347,6 +348,23 @@ $plans = $stmt->fetchAll();
                     <button class="select-btn">Escolher este Plano</button>
                 </div>
                 <?php endforeach; ?>
+            </div>
+
+            <div class="intro-box" style="margin-top: 40px;">
+                <h3 style="text-align: center; color: #1e88e5; margin-bottom: 20px;">Informações Importantes</h3>
+                <p><strong>Conexão de Alta Performance e Transparência</strong></p>
+                <p>Em qualquer plano que você escolher, a sua velocidade de conexão será a mais rápida que estiver disponível no momento, sem limites de banda ou download. É importante lembrar que, em algumas situações, a conexão pode sofrer quedas ou limitações devido à distância entre você e o ponto de acesso, ou à quantidade de dispositivos conectados na mesma área. Garantimos o nosso melhor para que sua experiência seja sempre a mais fluida possível.</p>
+            </div>
+
+            <div class="intro-box" style="margin-top: 20px;">
+                <h3 style="text-align: center; color: #1e88e5; margin-bottom: 20px;">Contato e Suporte</h3>
+                <p><strong>Conexão Rápida, Estabilidade Garantida.</strong></p>
+                <p>O nosso hotspot é a solução ideal para uma navegação prática e rápida. No entanto, se você busca uma internet com ainda mais qualidade, estabilidade e velocidade, entre em contato para solicitar uma análise de viabilidade de conexão via rádio. Nossa equipe está pronta para avaliar a melhor solução para você.</p>
+                <p style="margin-top: 15px;"><strong>Fale conosco:</strong></p>
+                <ul style="list-style: none; padding-left: 0; margin-top: 10px;">
+                    <li><strong>Telefone e WhatsApp:</strong> (81) 99818-1680</li>
+                    <li><strong>E-mail:</strong> hanter.duarte@gmail.com</li>
+                </ul>
             </div>
         </div>
 
@@ -498,7 +516,7 @@ $plans = $stmt->fetchAll();
             document.getElementById('errorMessage').classList.remove('active');
 
             try {
-                const response = await fetch('process_payment.php', {
+                const response = await fetch('process_payment_infinity.php', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

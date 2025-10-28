@@ -21,15 +21,15 @@ if (empty($data) || !isset($data['order_nsu']) || !isset($data['invoice_slug']))
 $transactionId = intval($data['order_nsu']); // Seu ID interno
 $invoiceSlug = sanitizeInput($data['invoice_slug']);
 // O status no webhook da InfinitePay deve ser 'paid' ou 'approved' para processamento
-$paymentStatus = sanitizeInput(strtolower($data['status'] ?? 'paid')); 
+$paymentStatus = sanitizeInput(strtolower($data['status'] ?? 'paid'));
 
 $db = Database::getInstance()->getConnection();
 
 if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
-    
+
     try {
         $db->beginTransaction();
-        
+
         // a. Buscar transação pelo ID interno (order_nsu)
         $stmt = $db->prepare("
             SELECT t.*, c.name as customer_name, c.email, p.duration, p.duration_seconds
@@ -41,43 +41,59 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         ");
         $stmt->execute([$transactionId]);
         $transaction = $stmt->fetch();
-        
+
         if (!$transaction) {
             $db->rollBack();
             logEvent('webhook_info', "Transação ID $transactionId não encontrada ou já aprovada. Ignorando.");
-            http_response_code(200); 
+            http_response_code(200);
             jsonResponse(true, 'Transação não encontrada ou já processada.');
         }
 
         // b. Atualizar status e referências
         $stmt = $db->prepare("
-            UPDATE transactions SET 
-                payment_status = 'approved', 
-                infinitypay_order_id = ?, 
-                payment_id = ?, 
+            UPDATE transactions SET
+                payment_status = 'approved',
+                infinitypay_order_id = ?,
+                payment_id = ?,
                 gateway_response = ?
             WHERE id = ?
         ");
-        
+
         $stmt->execute([
             $transactionId, // order_nsu
             $invoiceSlug,   // invoice_slug
             $payload,       // Salva o payload completo
             $transactionId
         ]);
-        
+
         // c. Criar usuário no MikroTik
         $mt = new MikrotikAPI();
-        
-        // *** IMPORTANTE: A função createHotspotUser precisa ser implementada
-        // e ser capaz de criar e retornar as credenciais para o log/email
         $userCreationResult = createHotspotUser($db, $mt, $transaction, $transaction['duration_seconds']);
-        
+
         if ($userCreationResult['success']) {
+            // Enviar email com as credenciais
+            $emailSubject = "Seu acesso WiFi foi liberado!";
+            $emailBody = "
+                <h1>Olá, {$transaction['customer_name']}!</h1>
+                <p>Seu pagamento foi aprovado e seu acesso à internet já está disponível.</p>
+                <h3>Suas credenciais:</h3>
+                <ul>
+                    <li><strong>Usuário:</strong> {$userCreationResult['username']}</li>
+                    <li><strong>Senha:</strong> {$userCreationResult['password']}</li>
+                </ul>
+                <p>Para usar, basta se conectar à nossa rede WiFi e inserir os dados acima.</p>
+                <p>Obrigado por escolher nossos serviços!</p>
+            ";
+            sendEmail($transaction['email'], $emailSubject, $emailBody);
+
             $db->commit();
-            logEvent('webhook_success', "Pagamento $invoiceSlug aprovado. Usuário criado.", $transactionId);
-            http_response_code(200);
-            jsonResponse(true, 'Pagamento aprovado e usuário criado.');
+            logEvent('webhook_success', "Pagamento $invoiceSlug aprovado. Usuário criado e email enviado.", $transactionId);
+
+            // Redirecionar para a página de sucesso
+            $redirectUrl = BASE_URL . '/payment_success.php?transaction_id=' . $transactionId;
+            header('Location: ' . $redirectUrl);
+            exit;
+
         } else {
             $db->rollBack();
             logEvent('webhook_error', "Pagamento $invoiceSlug aprovado, mas falha ao criar usuário MikroTik: " . $userCreationResult['message'], $transactionId);

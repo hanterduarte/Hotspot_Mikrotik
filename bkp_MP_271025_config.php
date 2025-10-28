@@ -9,24 +9,11 @@ define('DB_PASS', '');
 define('DB_CHARSET', 'utf8mb4');
 
 // Configurações do Sistema
-define('BASE_URL', 'https://wifibarato.maiscoresed.com.br/hotspot');  // Ajuste conforme seu ambiente
+define('BASE_URL', 'https://wifibarato.maiscoresed.com.br/hotspot'); // Ajuste conforme seu ambiente
 define('TIMEZONE', 'America/Recife');
 
 // Configurar timezone
 date_default_timezone_set(TIMEZONE);
-
-// Configurações do MikroTik
-define('MIKROTIK_HOST', '192.168.88.1');
-define('MIKROTIK_USER', 'admin');
-define('MIKROTIK_PASS', ''); // Insira sua senha do MikroTik aqui
-
-// Configurações de Email (SMTP)
-define('SMTP_HOST', 'smtp.example.com');
-define('SMTP_USER', 'user@example.com');
-define('SMTP_PASS', ''); // Insira sua senha de email aqui
-define('SMTP_PORT', 587);
-define('SMTP_FROM_EMAIL', 'contato@wifibarato.com.br');
-define('SMTP_FROM_NAME', 'WiFi Barato');
 
 // Configurações de Sessão
 ini_set('session.cookie_httponly', 1);
@@ -176,103 +163,9 @@ function jsonResponse($success, $message, $data = null) {
     exit;
 }
 
-// Função para criar ou buscar cliente
-function createOrGetCustomer($db, $customerData) {
-    $name = $customerData['name'];
-    $email = $customerData['email'];
-    $phone = $customerData['phone'];
-    $cpf = $customerData['cpf'];
-
-    // Verificar se cliente já existe
-    $stmt = $db->prepare("SELECT id FROM customers WHERE email = ?");
-    $stmt->execute([$email]);
-    $customer = $stmt->fetch();
-
-    if ($customer) {
-        $customerId = $customer['id'];
-
-        // Atualizar dados do cliente
-        $stmt = $db->prepare("UPDATE customers SET name = ?, phone = ?, cpf = ? WHERE id = ?");
-        $stmt->execute([$name, $phone, $cpf, $customerId]);
-    } else {
-        // Criar novo cliente
-        $stmt = $db->prepare("INSERT INTO customers (name, email, phone, cpf) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$name, $email, $phone, $cpf]);
-        $customerId = $db->lastInsertId();
-    }
-
-    return $customerId;
-}
-
-// Função para criar usuário no MikroTik e salvar no banco
-function createHotspotUser($db, $mt, $transaction, $durationInSeconds) {
-    // 1. Gerar credenciais
-    $username = generateUsername('user');
-    $password = generatePassword(8);
-
-    // 2. Formatar o tempo de duração para o MikroTik (ex: 1d, 30d)
-    $limitUptime = $durationInSeconds . 's';
-
-    // 3. Tentar criar o usuário no MikroTik
-    $result = $mt->createHotspotUser($username, $password, 'default', $limitUptime);
-
-    if ($result['success']) {
-        // 4. Se sucesso, salvar no banco de dados
-        try {
-            $stmt = $db->prepare("
-                UPDATE transactions
-                SET hotspot_user = ?, hotspot_password = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([$username, $password, $transaction['id']]);
-
-            return [
-                'success' => true,
-                'username' => $username,
-                'password' => $password
-            ];
-
-        } catch (Exception $e) {
-            // Se falhar ao salvar, tenta remover o usuário criado no MikroTik para evitar inconsistência
-            $mt->removeHotspotUser($username);
-            logEvent('mikrotik_error', "Usuário $username criado no MikroTik, mas falhou ao salvar no DB. Usuário revertido.", $transaction['id']);
-            return ['success' => false, 'message' => 'Falha ao salvar credenciais no banco de dados.'];
-        }
-
-    } else {
-        // 5. Se falhar, retornar o erro
-        return ['success' => false, 'message' => $result['message']];
-    }
-}
-
-// Função para enviar email
-function sendEmail($to, $subject, $body) {
-    $headers = "MIME-Version: 1.0" . "\r\n";
-    $headers .= "Content-type:text/html;charset=UTF-8" . "\r\n";
-    $headers .= 'From: ' . SMTP_FROM_NAME . ' <' . SMTP_FROM_EMAIL . '>' . "\r\n";
-
-    // Para usar um SMTP externo, você precisará de uma biblioteca como o PHPMailer.
-    // Esta é uma implementação básica usando a função mail() do PHP.
-    // Pode ser necessário configurar o `php.ini` no seu servidor.
-
-    try {
-        if (mail($to, $subject, $body, $headers)) {
-            logEvent('email_success', "Email enviado para $to. Assunto: $subject");
-            return true;
-        } else {
-            logEvent('email_error', "Falha ao enviar email para $to. (Função mail() retornou false)");
-            return false;
-        }
-    } catch (Exception $e) {
-        logEvent('email_exception', "Exceção ao enviar email: " . $e->getMessage());
-        return false;
-    }
-}
-
-
 // Tratamento de erros
 set_error_handler(function($errno, $errstr, $errfile, $errline) {
-    logEvent('error', "Error [$errno]: $errstr in $file on line $errline");
+    logEvent('error', "Error [$errno]: $errstr in $errfile on line $errline");
 });
 
 set_exception_handler(function($exception) {
