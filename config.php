@@ -272,7 +272,7 @@ function sendEmail($to, $subject, $body) {
 
 // Tratamento de erros
 set_error_handler(function($errno, $errstr, $errfile, $errline) {
-    logEvent('error', "Error [$errno]: $errstr in $file on line $errline");
+    logEvent('error', "Error [$errno]: $errstr in $errfile on line $errline");
 });
 
 set_exception_handler(function($exception) {
