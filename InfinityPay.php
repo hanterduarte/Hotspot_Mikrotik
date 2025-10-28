@@ -17,26 +17,26 @@ class InfinityPay {
 
     private function makeRequest($url, $data) {
         $ch = curl_init();
-
+        
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-
+        
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
+        
         if (curl_errno($ch)) {
             $error = curl_error($ch);
             curl_close($ch);
             logEvent('infinitepay_error', "Erro CURL: $error");
             return ['success' => false, 'message' => "Erro de conexão: $error"];
         }
-
+        
         curl_close($ch);
-
+        
         $decoded = json_decode($response, true);
 
         if ($httpCode >= 200 && $httpCode < 300 && isset($decoded['url'])) {
@@ -66,18 +66,18 @@ class InfinityPay {
         ];
 
         // O 'order_nsu' é o identificador único do seu sistema
-        $orderNsu = strval($transactionId);
-
+        $orderNsu = strval($transactionId); 
+        
         // A redirect_url volta para sua página de sucesso, levando a referência interna
-        $redirectUrl = BASE_URL . "/payment_success.php?external_reference=" . $orderNsu;
-
+        $redirectUrl = BASE_URL . "/payment_success.php?external_reference=" . $orderNsu; 
+        
         // A webhook_url notifica o seu sistema sobre a mudança de status
-        $webhookUrl = BASE_URL . "/webhook_infinitypay.php";
+        $webhookUrl = BASE_URL . "/webhook_infinitypay.php"; 
 
         $data = [
             "handle" => $this->handle,
-            "redirect_url" => $redirectUrl,
-            "webhook_url" => $webhookUrl,
+            "redirect_url" => $redirectUrl, 
+            "webhook_url" => $webhookUrl, 
             "order_nsu" => $orderNsu,
             "customer" => [
                 "name" => $customerData['name'],

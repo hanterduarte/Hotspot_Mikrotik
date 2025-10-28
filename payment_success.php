@@ -207,7 +207,7 @@ if ($externalReference) {
         <?php if ($credentials): ?>
         <div class="credentials-box">
             <h3>📱 Suas Credenciais de Acesso</h3>
-
+            
             <div class="credential-item">
                 <span class="credential-label">Plano:</span>
                 <span class="credential-value"><?php echo htmlspecialchars($credentials['plan_name']); ?></span>
@@ -261,7 +261,7 @@ if ($externalReference) {
 
         const checkInterval = setInterval(async () => {
             checkCount++;
-
+            
             if (checkCount > maxChecks) {
                 clearInterval(checkInterval);
                 return;
