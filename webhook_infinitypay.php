@@ -21,9 +21,10 @@ if (empty($data) || !isset($data['order_nsu']) || !isset($data['invoice_slug']))
 
 $transactionId = intval($data['order_nsu']); // Seu ID interno
 $invoiceSlug = sanitizeInput($data['invoice_slug']);
+
 // Capturar o transaction_nsu (ID único do pagamento na IP)
 $transactionNsu = sanitizeInput($data['transaction_nsu'] ?? ''); 
-// Capturar o método de pagamento/captura (pix, credit_card, etc.) - NOVO CAMPO
+// Capturar o método de pagamento/captura (pix, credit_card, etc.)
 $captureMethod = sanitizeInput($data['capture_method'] ?? 'infinitepay_checkout'); 
 
 // O status no webhook da InfinitePay deve ser 'paid' ou 'approved' para processamento
@@ -38,9 +39,10 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         
         // a. Buscar transação pelo ID interno (order_nsu)
         $stmt = $db->prepare("
-            SELECT t.*, c.name as customer_name, c.email
+            SELECT t.*, c.name as customer_name, c.email, p.duration_seconds
             FROM transactions t
             JOIN customers c ON t.customer_id = c.id
+            JOIN plans p ON t.plan_id = p.id /* Necessário para createHotspotUser */
             WHERE t.id = ? AND t.payment_status = 'pending'
         ");
         $stmt->execute([$transactionId]);
@@ -55,14 +57,16 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
              return;
         }
 
-        // NOVO: Atualizar a transação com os novos campos
+        // ----------------------------------------------------
+        // NOVO: Atualizar a transação no banco de dados
+        // ----------------------------------------------------
         $updateStmt = $db->prepare("
             UPDATE transactions
             SET 
                 payment_status = 'success',
-                infinitypay_order_id = ?,    -- transaction_nsu
-                paid_at = NOW(),             -- NOVO: Grava a data e hora do sucesso
-                gateway = ?,                 -- NOVO: Grava o capture_method
+                infinitypay_order_id = ?,    /* transaction_nsu */
+                paid_at = NOW(),             /* Grava a data e hora do sucesso */
+                gateway = ?,                 /* Grava o método de captura (pix, cartão, etc) */
                 updated_at = NOW(),
                 gateway_response = JSON_SET(COALESCE(gateway_response, '{}'), '$.transaction_nsu', ?)
             WHERE id = ?
@@ -74,8 +78,13 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
             $transactionId    // 4. WHERE id
         ]);
         
-        // b. Chamar a função de criação de usuário no MikroTik
-        // Assumo que createHotspotUser é uma função que você tem implementada
+        // ----------------------------------------------------
+        // B. LÓGICA DO MIKROTIK - TEMPORARIAMENTE COMENTADA PARA TESTE
+        // ----------------------------------------------------
+        
+        /*
+        $mt = new MikrotikAPI();
+        // Chamar a função de criação de usuário no MikroTik
         $userCreationResult = createHotspotUser($db, $mt, $transaction, $transaction['duration_seconds']);
         
         if ($userCreationResult['success']) {
@@ -89,6 +98,14 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
             http_response_code(400); // Erro de negócio
             jsonResponse(false, 'Falha interna ao criar usuário MikroTik.');
         }
+        */
+        
+        // CÓDIGO TEMPORÁRIO DE SUCESSO DO DB (IGNORANDO O MIKROTIK)
+        $db->commit();
+        logEvent('webhook_success_TEST', "Pagamento $invoiceSlug aprovado. Transação atualizada no DB (Mikrotik temporariamente ignorado).", $transactionId);
+        http_response_code(200);
+        jsonResponse(true, 'Pagamento aprovado e transação atualizada no DB (Teste OK).');
+
 
     } catch (Exception $e) {
         if ($db->inTransaction()) {
@@ -96,7 +113,7 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         }
         logEvent('webhook_exception', "Exceção no webhook InfinitePay: " . $e->getMessage(), $transactionId ?? 0);
         http_response_code(500); // Erro de servidor
-        jsonResponse(false, 'Erro interno do servidor.');
+        jsonResponse(false, 'Ocorreu um erro interno. Por favor, tente novamente.');
     }
 } else {
     // Para outros status (Ex: pending, cancelled).
@@ -104,4 +121,3 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
     http_response_code(200); // Responder OK para status que não ativam
     jsonResponse(true, 'Status recebido, nenhuma ação de ativação necessária.');
 }
-?>

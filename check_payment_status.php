@@ -2,8 +2,8 @@
 // check_payment_status.php - Verifica o status do pagamento via polling e age como fallback
 
 require_once 'config.php';
-require_once 'MikrotikAPI.php'; // Adicionar a classe MikrotikAPI aqui
-require_once 'InfinityPay.php'; // Adicionar a classe para chamar a API da InfinitePay
+require_once 'MikrotikAPI.php'; 
+require_once 'InfinityPay.php'; 
 
 header('Content-Type: application/json');
 
@@ -16,13 +16,13 @@ if (!$transactionId) {
 try {
     $db = Database::getInstance()->getConnection();
     
-    // 1. Buscar transação pelo ID (t.id) - ATENÇÃO: A query original busca por t.payment_id
-    // Se o payment_id na URL é o t.id, a query deve buscar pelo ID da transação (t.id)
+    // 1. Buscar transação e dados necessários (incluindo duração do plano)
     $stmt = $db->prepare("
-        SELECT t.*, hu.username, hu.password as user_password
+        SELECT t.*, hu.username, hu.password as user_password, p.duration_seconds
         FROM transactions t
         LEFT JOIN hotspot_users hu ON t.id = hu.transaction_id
-        WHERE t.id = ?  /* CORRIGIDO para buscar pelo ID interno da transação (t.id) */
+        JOIN plans p ON t.plan_id = p.id
+        WHERE t.id = ?  
     ");
     $stmt->execute([$transactionId]);
     $transaction = $stmt->fetch();
@@ -48,32 +48,20 @@ try {
     // 2. LÓGICA DE FALLBACK (Se ainda está PENDENTE, verifica o status na InfinitePay)
     if ($currentStatus === 'pending') {
         
-        // --- INÍCIO DA CONSULTA À API INFINITEPAY ---
-        
-        // O Invoice Slug deve ter sido salvo no gateway_response (ou você terá que buscar a referência externa)
         $gatewayResponse = json_decode($transaction['gateway_response'], true);
+        $invoiceSlug = $gatewayResponse['invoice_slug'] ?? null;
         
-        // Usamos o campo 'infinitypay_order_id' se ele tiver sido preenchido
-        $invoiceSlug = $transaction['infinitypay_order_id'] ?? null; 
-        
-        // Se o slug/referência estiver vazio, não podemos consultar
-        if (!$invoiceSlug) {
-            // Se o gateway_response contém o invoice_slug, use-o como fallback
-            $invoiceSlug = $gatewayResponse['invoice_slug'] ?? null;
-        }
-
         if (!$invoiceSlug) {
             logEvent('fallback_error', "Transação ID $transactionId pendente, mas sem Invoice Slug para consulta.", $transactionId);
             jsonResponse(true, 'Aguardando webhook...', ['status' => 'pending']);
         }
         
         $ipApi = new InfinityPay();
-        // Consulta o status da fatura na API da InfinitePay
         $apiResult = $ipApi->getInvoiceStatus($invoiceSlug); 
 
         if ($apiResult['success']) {
-            $ipStatus = strtolower($apiResult['data']['status']); 
-            $transactionNsu = $apiResult['data']['transaction_nsu'] ?? $invoiceSlug; // Garante que temos um NSU
+            $ipStatus = strtolower($apiResult['data']['status'] ?? 'pending'); 
+            $transactionNsu = $apiResult['data']['transaction_nsu'] ?? $invoiceSlug;
             $captureMethod = $apiResult['data']['capture_method'] ?? 'checkout_link';
 
             // Se o status retornado pela API for de sucesso
@@ -87,9 +75,9 @@ try {
                     UPDATE transactions
                     SET 
                         payment_status = 'success',
-                        infinitypay_order_id = ?,    /* transaction_nsu */
-                        paid_at = NOW(),             /* Grava a data e hora do sucesso */
-                        gateway = ?,                 /* Grava o método de captura */
+                        infinitypay_order_id = ?,    
+                        paid_at = NOW(),             
+                        gateway = ?,                 
                         updated_at = NOW(),
                         gateway_response = JSON_SET(COALESCE(gateway_response, '{}'), '$.transaction_nsu', ?)
                     WHERE id = ?
@@ -103,9 +91,7 @@ try {
 
                 // Chamar a função de criação de usuário no MikroTik
                 $mt = new MikrotikAPI();
-                // Assumindo que createHotspotUser precisa ser refeita para receber o objeto MikrotikAPI $mt
-                // ou que $mt é globalmente disponível. Vou passar $mt.
-                $userCreationResult = createHotspotUser($db, $mt, $transaction, $transaction['duration_seconds']);
+                $userCreationResult = createHotspotUser($db, $mt, $transaction, $transaction['duration_seconds']); 
                 
                 if ($userCreationResult['success']) {
                     $db->commit();
