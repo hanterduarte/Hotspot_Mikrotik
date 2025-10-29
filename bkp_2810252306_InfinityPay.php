@@ -49,56 +49,6 @@ class InfinityPay {
     }
 
     /**
- * Consulta o status de uma fatura na InfinitePay usando o slug
- * @param string $invoiceSlug O slug da fatura (referência externa)
- * @return array Resultado da requisição com o status
- */
-public function getInvoiceStatus($invoiceSlug) {
-    // A URL da API para buscar detalhes da fatura deve ser pública para funcionar sem a Secret Key.
-    // Vamos usar a URL de recibo, que pode mostrar o status publicamente.
-    // ATENÇÃO: É comum que APIs de status exijam autenticação. Se esta URL falhar,
-    // você precisará de uma chave de API ou de um endpoint de consulta pública.
-    
-    // URL COMUMMENTE PÚBLICA PARA CONSULTA DE STATUS (verifique na documentação da IP)
-    $url = "https://api.infinitepay.io/v1/invoices/{$invoiceSlug}"; // Ou outro endpoint de consulta
-    
-    // Caso a API exija autenticação mesmo para a consulta, usaremos o Handle como API Key, se permitido.
-    // Se o Handle não for aceito como API Key, esta consulta falhará.
-    $handle = $this->handle; // Usando o Handle para tentar autenticar, se necessário
-    
-    $ch = curl_init();
-    
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    
-    $headers = [
-        'Content-Type: application/json'
-    ];
-    
-    // Tenta usar o Handle como Token (se a API aceitar)
-    if (!empty($handle)) {
-         $headers[] = 'Authorization: Bearer ' . $handle;
-    }
-    
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-    
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    $data = json_decode($response, true);
-
-    if ($httpCode === 200 && isset($data['status'])) {
-        return ['success' => true, 'data' => $data];
-    }
-    
-    logEvent('infinitepay_api_error', "Falha ao verificar status da fatura $invoiceSlug. Code: $httpCode. Response: " . $response);
-    
-    return ['success' => false, 'message' => "Erro ao verificar status na InfinitePay."];
-}
-
-    /**
      * Cria o link de pagamento na InfinitePay.
      * @param array $planData Dados do plano (name, price)
      * @param array $customerData Dados do cliente (name, email, phone)
