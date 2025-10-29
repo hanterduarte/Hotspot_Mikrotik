@@ -10,10 +10,10 @@ class MikrotikAPI {
     private $connected = false;
     
     public function __construct($host = null, $user = null, $pass = null, $port = 8728) {
-        $this->host = $host ?: getSetting('mikrotik_host', '192.168.88.1');
+        $this->host = $host ?: getSetting('mikrotik_host', '192.168.1.57');
         $this->port = $port ?: getSetting('mikrotik_port', 8728);
         $this->user = $user ?: getSetting('mikrotik_user', 'admin');
-        $this->pass = $pass ?: getSetting('mikrotik_password', '');
+        $this->pass = $pass ?: getSetting('mikrotik_password', 'admin');
     }
     
     public function connect() {
