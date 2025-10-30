@@ -20,14 +20,10 @@ if (empty($data) || !isset($data['order_nsu']) || !isset($data['invoice_slug']))
 
 $transactionId = intval($data['order_nsu']); // Seu ID interno
 $invoiceSlug = sanitizeInput($data['invoice_slug']);
-
-// Capturar o transaction_nsu (ID único do pagamento na IP)
-$transactionNsu = sanitizeInput($data['transaction_nsu'] ?? ''); 
-// Capturar o método de pagamento/captura (pix, credit_card, etc.)
-$captureMethod = sanitizeInput($data['capture_method'] ?? 'infinitepay_checkout'); 
-
 // O status no webhook da InfinitePay deve ser 'paid' ou 'approved' para processamento
 $paymentStatus = sanitizeInput(strtolower($data['status'] ?? 'paid')); 
+
+$db = Database::getInstance()->getConnection();
 
 if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
     
@@ -36,102 +32,58 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         
         // a. Buscar transação pelo ID interno (order_nsu)
         $stmt = $db->prepare("
-            SELECT t.*, c.name as customer_name, c.email as customer_email
+            SELECT t.*, c.name as customer_name, c.email, p.duration, p.duration_seconds
             FROM transactions t
             JOIN customers c ON t.customer_id = c.id
-            WHERE t.id = ? AND t.status IN ('pending', 'processing')
-            LIMIT 1
+            JOIN plans p ON t.plan_id = p.id
+            WHERE t.id = ? AND t.payment_status != 'approved'
+            FOR UPDATE
         ");
         $stmt->execute([$transactionId]);
         $transaction = $stmt->fetch();
-
+        
         if (!$transaction) {
             $db->rollBack();
-            logEvent('webhook_warning', "Transação $transactionId não encontrada ou status já processado.", $transactionId);
-            http_response_code(200); // Retorna 200 para a InfinityPay para não re-enviar
+            logEvent('webhook_info', "Transação ID $transactionId não encontrada ou já aprovada. Ignorando.");
+            http_response_code(200); 
             jsonResponse(true, 'Transação não encontrada ou já processada.');
         }
 
-        // b. Atualizar o status da transação no DB
+        // b. Atualizar status e referências
         $stmt = $db->prepare("
-            UPDATE transactions 
-            SET status = 'approved', 
+            UPDATE transactions SET 
+                payment_status = 'approved', 
                 infinitypay_order_id = ?, 
-                payment_method = ?, 
-                updated_at = NOW()
+                payment_id = ?, 
+                gateway_response = ?
             WHERE id = ?
         ");
-        $stmt->execute([$transactionNsu, $captureMethod, $transactionId]);
-
         
-        // --- INÍCIO DA LÓGICA DE ATIVAÇÃO DO HOTSPOT ---
-
-        // 1. Obter o perfil MikroTik do plano (Requer coluna 'mikrotik_profile' na tabela 'plans')
-        $mikrotikProfile = getPlanProfile($db, $transaction['plan_id']);
-
-        // Assumindo que você tem 'mikrotik_server' na tabela settings ou use um padrão
-        $mikrotikServer = getSetting('mikrotik_server', 'hotspot1'); 
-        $mikrotikComment = "Venda ID: {$transactionId} - Cliente: {$transaction['customer_name']}";
-
-        if (empty($mikrotikProfile)) {
-            $db->rollBack();
-            logEvent('webhook_error', "Pagamento $invoiceSlug aprovado, mas perfil MikroTik não encontrado (Plan ID: {$transaction['plan_id']}).", $transactionId);
-            http_response_code(400); 
-            jsonResponse(false, 'Perfil Hotspot não configurado para o plano.');
-        }
-
-        // 2. Gerar credenciais
-        $username = generateUsername();
-        $password = generatePassword();
-
-        // 3. Conectar e criar o usuário no MikroTik
-        $mt = new MikrotikAPI(); 
-        $userCreationResult = $mt->createHotspotUser(
-            $username, 
-            $password, 
-            $mikrotikProfile, 
-            $mikrotikServer, 
-            $mikrotikComment
-        );
-
+        $stmt->execute([
+            $transactionId, // order_nsu
+            $invoiceSlug,   // invoice_slug
+            $payload,       // Salva o payload completo
+            $transactionId
+        ]);
+        
+        // c. Criar usuário no MikroTik
+        $mt = new MikrotikAPI();
+        
+        // *** IMPORTANTE: A função createHotspotUser precisa ser implementada
+        // e ser capaz de criar e retornar as credenciais para o log/email
+        $userCreationResult = createHotspotUser($db, $mt, $transaction, $transaction['duration_seconds']);
+        
         if ($userCreationResult['success']) {
-            // 4. Salvar credenciais no DB (tabela hotspot_users)
-            // PASSANDO customer_id e NULL para expires_at, conforme sua tabela.
-            $saveResult = saveHotspotUser(
-                $db, 
-                $transactionId, 
-                $transaction['customer_id'], // Novo parâmetro
-                $transaction['plan_id'], 
-                $username, 
-                $password,
-                null // expires_at é NULL, pois o Mikrotik a gerencia
-            );
-
-            if ($saveResult) {
-                $db->commit(); // SUCESSO! Finaliza a transação do DB.
-                logEvent('webhook_success', "Pagamento $invoiceSlug aprovado. Usuário {$username} criado e salvo.", $transactionId);
-                
-                // *** LOGICA DE ENVIO DE EMAIL/SMS AQUI ***
-                
-                http_response_code(200);
-                jsonResponse(true, 'Pagamento aprovado e usuário criado.');
-            } else {
-                // Falha ao salvar no DB
-                $db->rollBack(); 
-                logEvent('webhook_error', "Falha ao salvar usuário $username no DB após criação no MikroTik. Transação: $transactionId", $transactionId);
-                http_response_code(400);
-                jsonResponse(false, 'Falha interna ao salvar credenciais.');
-            }
+            $db->commit();
+            logEvent('webhook_success', "Pagamento $invoiceSlug aprovado. Usuário criado.", $transactionId);
+            http_response_code(200);
+            jsonResponse(true, 'Pagamento aprovado e usuário criado.');
         } else {
-            // Falha na criação do MikroTik
             $db->rollBack();
             logEvent('webhook_error', "Pagamento $invoiceSlug aprovado, mas falha ao criar usuário MikroTik: " . $userCreationResult['message'], $transactionId);
-            http_response_code(400); 
+            http_response_code(400); // Erro de negócio
             jsonResponse(false, 'Falha interna ao criar usuário MikroTik.');
         }
-
-        // --- FIM DA LÓGICA DE ATIVAÇÃO DO HOTSPOT ---
-
 
     } catch (Exception $e) {
         if ($db->inTransaction()) {
@@ -145,5 +97,6 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
     // Para outros status (Ex: pending, cancelled).
     logEvent('webhook_info', "Status InfinitePay recebido: $paymentStatus. Nenhuma ação de ativação tomada.", $transactionId ?? 0);
     http_response_code(200);
-    jsonResponse(true, 'Status recebido. Nenhuma ação de ativação necessária.');
+    jsonResponse(true, 'Status recebido. Nenhuma ação necessária.');
 }
+?>

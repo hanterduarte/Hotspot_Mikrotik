@@ -41,67 +41,137 @@ class Database {
         }
         return self::$instance;
     }
-
+    
     public function getConnection() {
         return $this->conn;
     }
-}
-
-// Inicializa o banco de dados e obtém a conexão
-$db = Database::getInstance()->getConnection();
-
-// --- Funções de Log e Configuração ---
-
-// Função simples para logar eventos (implemente a sua tabela 'logs' se não existir)
-function logEvent($type, $message, $transactionId = null) {
-    global $db;
-    try {
-        $stmt = $db->prepare("INSERT INTO logs (type, message, transaction_id, created_at) VALUES (?, ?, ?, NOW())");
-        $stmt->execute([$type, $message, $transactionId]);
-    } catch (PDOException $e) {
-        // Falha silenciosa no log se o DB estiver indisponível ou tabela logs inexistente
-        // error_log("Log Event Error: " . $e->getMessage());
+    
+    // Prevenir clonagem
+    private function __clone() {}
+    
+    // Prevenir unserialize
+    public function __wakeup() {
+        throw new Exception("Cannot unserialize singleton");
     }
 }
 
-// Função para buscar configurações do DB (tabela 'settings' deve existir)
+// Função para obter configurações do banco
 function getSetting($key, $default = null) {
-    global $db;
     try {
-        $stmt = $db->prepare("SELECT value FROM settings WHERE `key` = ? LIMIT 1");
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
         $stmt->execute([$key]);
         $result = $stmt->fetch();
-        return $result['value'] ?? $default;
-    } catch (PDOException $e) {
-        // Se a tabela settings não existir, retorna o default (útil para migração)
-        return $default; 
+        return $result ? $result['setting_value'] : $default;
+    } catch(Exception $e) {
+        // Em caso de erro (ex: tabela settings não existe), retorna o default
+        return $default;
     }
 }
 
-// --- Funções de Validação e Sanitização ---
+// Função para salvar configurações
+function saveSetting($key, $value) {
+    try {
+        $db = Database::getInstance()->getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO settings (setting_key, setting_value) 
+            VALUES (?, ?) 
+            ON DUPLICATE KEY UPDATE setting_value = ?
+        ");
+        return $stmt->execute([$key, $value, $value]);
+    } catch(Exception $e) {
+        return false;
+    }
+}
 
-// Função para criar ou obter ID do cliente (assumida a existência no seu sistema)
-function createOrGetCustomer(PDO $db, $name, $email, $phone, $cpf) {
-    // Implemente a lógica de busca/criação na sua tabela 'customers'
-    // Exemplo Simples (Apenas busca o ID se existir):
-    $stmt = $db->prepare("SELECT id FROM customers WHERE cpf = ?");
-    $stmt->execute([$cpf]);
+// Função para registrar logs
+function logEvent($type, $message, $related_id = null) {
+    try {
+        $db = Database::getInstance()->getConnection();
+        // Garante que a mensagem não exceda o limite da coluna (ex: 65535 para TEXT)
+        $message = substr($message, 0, 65500); 
+        $stmt = $db->prepare("INSERT INTO logs (log_type, log_message, related_id) VALUES (?, ?, ?)");
+        return $stmt->execute([$type, $message, $related_id]);
+    } catch(Exception $e) {
+        error_log("Erro ao registrar log: " . $e->getMessage());
+        return false;
+    }
+}
+
+// --- FUNÇÃO ADICIONADA: Envio de Credenciais por E-mail ---
+function sendCredentialsEmail($toEmail, $userName, $password, $planName) {
+    // !!! IMPORTANTE: SUBSTITUA ESTA FUNÇÃO PELA SUA LÓGICA REAL DE ENVIO DE E-MAIL (PHPMailer, etc.) !!!
+    
+    $subject = 'Suas Credenciais de Acesso ao WiFi Hotspot (' . $planName . ')';
+    $message = "
+        Olá,
+        
+        Seu pagamento foi confirmado e seu acesso liberado!
+        
+        Aqui estão suas credenciais para acessar o nosso WiFi ($planName):
+        Usuário: $userName
+        Senha: $password
+        
+        Guarde esta informação em local seguro.
+        Obrigado!
+    ";
+    
+    // Simulação do envio (Loga o evento para confirmação)
+    logEvent('email_info', "Email de credenciais simulado enviado para $toEmail. Usuário: $userName");
+
+    // Se quiser usar a função mail() nativa do PHP, descomente e configure seu servidor:
+    // return mail($toEmail, $subject, $message, 'From: Suporte Hotspot <nao-responda@seusite.com>');
+
+    return true; 
+}
+// --- Fim da Função Adicionada ---
+
+// Função para criar ou obter um cliente
+function createOrGetCustomer($db, $customerData) {
+    // 1. Tenta encontrar o cliente pelo email
+    $stmt = $db->prepare("SELECT id FROM customers WHERE email = ?");
+    $stmt->execute([$customerData['email']]);
     $customer = $stmt->fetch();
 
     if ($customer) {
+        // Cliente encontrado, retorna o ID
         return $customer['id'];
+    } else {
+        // 2. Cliente não encontrado, cria um novo
+        $stmt = $db->prepare("
+            INSERT INTO customers (name, email, phone, cpf) 
+            VALUES (?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $customerData['name'],
+            $customerData['email'],
+            $customerData['phone'],
+            $customerData['cpf']
+        ]);
+        // Retorna o ID do novo cliente
+        return $db->lastInsertId();
     }
-
-    // Se não existir, insere e retorna o novo ID
-    $stmt = $db->prepare("INSERT INTO customers (name, email, phone, cpf, created_at) VALUES (?, ?, ?, ?, NOW())");
-    $stmt->execute([$name, $email, $phone, $cpf]);
-    return $db->lastInsertId();
 }
 
+// Função para gerar username único
+function generateUsername($prefix = 'user') {
+    return $prefix . '_' . date('YmdHis') . rand(100, 999);
+}
+
+// Função para gerar senha aleatória
+function generatePassword($length = 8) {
+    $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    $password = '';
+    for ($i = 0; $i < $length; $i++) {
+        $password .= $chars[rand(0, strlen($chars) - 1)];
+    }
+    return $password;
+}
 
 // Função para validar CPF
 function validateCPF($cpf) {
     $cpf = preg_replace('/[^0-9]/', '', $cpf);
+    
     if (strlen($cpf) != 11) {
         return false;
     }
@@ -151,45 +221,6 @@ function jsonResponse($success, $message, $data = null) {
     exit;
 }
 
-// --- NOVAS Funções de Hotspot (Implementadas e Corrigidas) ---
-
-/**
- * Gera um username aleatório (ex: user12345678)
- */
-function generateUsername() {
-    return 'user' . mt_rand(10000000, 99999999);
-}
-
-/**
- * Gera uma senha numérica aleatória (ex: 6 dígitos)
- */
-function generatePassword() {
-    return strval(mt_rand(100000, 999999));
-}
-
-/**
- * Busca o nome do perfil Hotspot associado a um plano.
- */
-function getPlanProfile(PDO $db, $planId) {
-    $stmt = $db->prepare("SELECT mikrotik_profile FROM plans WHERE id = ?");
-    $stmt->execute([$planId]);
-    $plan = $stmt->fetch();
-    return $plan['mikrotik_profile'] ?? null;
-}
-
-/**
- * Salva as credenciais do usuário Hotspot no banco de dados.
- * ATUALIZADA para sua estrutura de tabela, incluindo customer_id.
- */
-function saveHotspotUser(PDO $db, $transactionId, $customerId, $planId, $username, $password, $expiresAt = null) {
-    $stmt = $db->prepare("
-        INSERT INTO hotspot_users (transaction_id, customer_id, plan_id, username, password, expires_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
-    ");
-    // O expiresAt é passado como NULL por padrão, resolvendo o problema de campo NOT NULL.
-    return $stmt->execute([$transactionId, $customerId, $planId, $username, $password, $expiresAt]);
-}
-
 // Tratamento de erros
 set_error_handler(function($errno, $errstr, $errfile, $errline) {
     logEvent('error', "Error [$errno]: $errstr in $errfile on line $errline");
@@ -203,9 +234,9 @@ set_exception_handler(function($exception) {
         if (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false) {
              echo json_encode(['error' => 'Ocorreu um erro interno. Por favor, tente novamente.']);
         } else {
-             // Exibe uma mensagem simples
-             echo "<h1>Erro Interno do Servidor</h1><p>Ocorreu um erro. Por favor, tente novamente mais tarde.</p>";
+             // Se não for uma requisição JSON, mostra uma página de erro simples
+             echo "<h1>Erro 500</h1><p>Ocorreu um erro interno. Verifique os logs para detalhes.</p>";
         }
-        exit;
     }
 });
+?>
