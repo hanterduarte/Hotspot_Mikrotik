@@ -1,12 +1,14 @@
 <?php
 require_once 'config.php';
 
+// Busca o ID da transação na URL
 $paymentId = $_GET['payment_id'] ?? null;
 $externalReference = $_GET['external_reference'] ?? null;
 
 $credentials = null;
 
 if ($externalReference) {
+    // Busca as credenciais criadas e salvas no hotspot_users
     $db = Database::getInstance()->getConnection();
     $stmt = $db->prepare("
         SELECT hu.username, hu.password as user_password, p.name as plan_name, hu.expires_at
@@ -40,217 +42,159 @@ if ($externalReference) {
             min-height: 100vh;
             padding: 20px;
             display: flex;
-            align-items: center;
             justify-content: center;
+            align-items: center;
         }
 
         .container {
             max-width: 600px;
             width: 100%;
+        }
+
+        .card {
             background: white;
-            border-radius: 20px;
             padding: 40px;
-            box-shadow: 0 10px 50px rgba(0,0,0,0.3);
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             text-align: center;
         }
 
-        .success-icon {
-            width: 100px;
-            height: 100px;
-            background: #4caf50;
-            border-radius: 50%;
-            margin: 0 auto 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            animation: scaleIn 0.5s ease;
+        .icon {
+            color: #4CAF50;
+            font-size: 80px;
+            margin-bottom: 20px;
+            /* Usando um ícone simples de check */
+            content: "✓"; 
         }
-
-        @keyframes scaleIn {
-            0% { transform: scale(0); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-
-        .success-icon::after {
-            content: '✓';
-            font-size: 60px;
-            color: white;
-            font-weight: bold;
+        
+        /* Ajuste para usar um caractere como ícone, já que não temos font-awesome */
+        .icon-check:before {
+            content: "✓";
+            display: block;
+            margin: 0 auto 20px auto;
+            color: #4CAF50;
+            font-size: 80px;
+            line-height: 1;
         }
 
         h1 {
-            color: #4caf50;
-            font-size: 2em;
-            margin-bottom: 15px;
+            color: #2E7D32;
+            margin-bottom: 10px;
+            font-size: 28px;
         }
 
-        .subtitle {
-            color: #666;
-            font-size: 1.1em;
-            margin-bottom: 30px;
-        }
-
-        .credentials-box {
-            background: #f0f7ff;
-            border-radius: 15px;
-            padding: 25px;
-            margin: 30px 0;
-            border-left: 4px solid #4caf50;
-            text-align: left;
-        }
-
-        .credentials-box h3 {
-            color: #4caf50;
+        p {
+            color: #555;
             margin-bottom: 20px;
-            text-align: center;
-        }
-
-        .credential-item {
-            margin: 15px 0;
-            padding: 15px;
-            background: white;
-            border-radius: 10px;
-        }
-
-        .credential-label {
-            font-weight: bold;
-            color: #333;
-            display: block;
-            margin-bottom: 5px;
-            font-size: 0.9em;
-        }
-
-        .credential-value {
-            font-size: 1.3em;
-            color: #4caf50;
-            font-family: monospace;
-            font-weight: bold;
-        }
-
-        .instructions {
-            background: #fff9e6;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-            text-align: left;
-        }
-
-        .instructions h4 {
-            color: #f57c00;
-            margin-bottom: 15px;
-        }
-
-        .instructions ol {
-            margin-left: 20px;
-        }
-
-        .instructions li {
-            margin: 8px 0;
-            color: #666;
-        }
-
-        .info-text {
-            background: #e8f5e9;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-            color: #2e7d32;
+            font-size: 16px;
         }
 
         .btn {
-            background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
-            color: white;
-            border: none;
-            padding: 15px 40px;
-            border-radius: 10px;
-            font-size: 1.1em;
-            font-weight: bold;
-            cursor: pointer;
-            text-decoration: none;
             display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            transition: background 0.3s;
             margin-top: 20px;
         }
 
         .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(76, 175, 80, 0.3);
+            background: #388E3C;
+        }
+        
+        .info-text {
+            background-color: #f0f0f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            color: #333;
+            text-align: left;
         }
 
-        @media (max-width: 768px) {
-            .container {
-                padding: 25px;
-            }
-
-            h1 {
-                font-size: 1.5em;
-            }
-
-            .success-icon {
-                width: 80px;
-                height: 80px;
-            }
-
-            .success-icon::after {
-                font-size: 40px;
-            }
+        /* --- Estilos para Credenciais --- */
+        .credentials-box {
+            background: #f1f8e9; /* Light green background */
+            border: 2px solid #66bb6a;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: left;
         }
+        .credentials-box h3 {
+            color: #2e7d32;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .credential-item {
+            padding: 8px 0;
+            border-bottom: 1px dashed #c8e6c9;
+            display: flex;
+            justify-content: space-between;
+            font-size: 16px;
+        }
+        .credential-item:last-child {
+            border-bottom: none;
+        }
+        .credential-item strong {
+            color: #388e3c;
+        }
+        .email-confirmation {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #e3f2fd; /* Light blue for info */
+            border: 1px solid #90caf9;
+            color: #1565c0;
+            border-radius: 5px;
+            text-align: center;
+        }
+
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="success-icon"></div>
-        
-        <h1>🎉 Pagamento Aprovado!</h1>
-        <p class="subtitle">Seu acesso foi liberado com sucesso</p>
+        <div class="card">
+            <div class="icon-check"></div>
+            <h1>Pagamento Aprovado!</h1>
+            <p>Seu acesso ao WiFi está liberado e as credenciais foram criadas com sucesso.</p>
 
-        <?php if ($credentials): ?>
-        <div class="credentials-box">
-            <h3>📱 Suas Credenciais de Acesso</h3>
+            <?php if ($credentials): ?>
             
-            <div class="credential-item">
-                <span class="credential-label">Plano:</span>
-                <span class="credential-value"><?php echo htmlspecialchars($credentials['plan_name']); ?></span>
+            <div class="credentials-box">
+                <h3>🎉 Suas Credenciais de Acesso!</h3>
+                <p>Use este usuário e senha para conectar ao WiFi:</p>
+                <div class="credential-item">
+                    <strong>Usuário:</strong> <span id="hotspot-user"><?php echo htmlspecialchars($credentials['username']); ?></span>
+                </div>
+                <div class="credential-item">
+                    <strong>Senha:</strong> <span id="hotspot-pass"><?php echo htmlspecialchars($credentials['user_password']); ?></span>
+                </div>
+                <div class="credential-item">
+                    <strong>Plano:</strong> <span><?php echo htmlspecialchars($credentials['plan_name']); ?></span>
+                </div>
+                <?php if ($credentials['expires_at']): ?>
+                <div class="credential-item">
+                    <strong>Expira em:</strong> <span><?php echo date('d/m/Y H:i', strtotime($credentials['expires_at'])); ?></span>
+                </div>
+                <?php endif; ?>
             </div>
-
-            <div class="credential-item">
-                <span class="credential-label">Usuário:</span>
-                <span class="credential-value"><?php echo htmlspecialchars($credentials['username']); ?></span>
+            
+            <div class="info-text email-confirmation">
+                <strong>✉️ Email enviado!</strong><br>
+                Suas credenciais também foram enviadas para o seu email. Guarde-as em local seguro!
             </div>
-
-            <div class="credential-item">
-                <span class="credential-label">Senha:</span>
-                <span class="credential-value"><?php echo htmlspecialchars($credentials['user_password']); ?></span>
+            
+            <?php else: ?>
+            <div class="info-text">
+                <p><strong>Aguarde alguns instantes...</strong></p>
+                <p>Seu pagamento foi aprovado, mas estamos aguardando a criação do usuário no servidor. Suas credenciais serão enviadas para seu email e aparecerão aqui em breve.</p>
             </div>
+            <?php endif; ?>
 
-            <div class="credential-item">
-                <span class="credential-label">Válido até:</span>
-                <span class="credential-value"><?php echo date('d/m/Y H:i', strtotime($credentials['expires_at'])); ?></span>
-            </div>
+            <a href="index.php" class="btn">Voltar ao Início</a>
         </div>
-
-        <div class="instructions">
-            <h4>📝 Como usar:</h4>
-            <ol>
-                <li>Conecte-se à rede WiFi</li>
-                <li>Uma página de login será aberta automaticamente</li>
-                <li>Digite o usuário e senha acima</li>
-                <li>Clique em "Conectar" e pronto!</li>
-            </ol>
-        </div>
-
-        <div class="info-text">
-            <strong>✉️ Email enviado!</strong><br>
-            Suas credenciais também foram enviadas para o seu email. Guarde-as em local seguro!
-        </div>
-        <?php else: ?>
-        <div class="info-text">
-            <p><strong>Aguarde alguns instantes...</strong></p>
-            <p>Suas credenciais estão sendo geradas e serão enviadas para seu email em breve.</p>
-        </div>
-        <?php endif; ?>
-
-        <a href="index.php" class="btn">Voltar ao Início</a>
     </div>
 
     <script>
@@ -268,7 +212,9 @@ if ($externalReference) {
             }
 
             try {
-                const response = await fetch('check_payment_status.php?payment_id=<?php echo $externalReference; ?>');
+                // OBS: Este endpoint (check_payment_status.php) deve ser criado para retornar 
+                // o status e as credenciais da transação pelo external_reference (ID da transação).
+                const response = await fetch('check_payment_status.php?external_reference=<?php echo $externalReference; ?>');
                 const result = await response.json();
 
                 if (result.success && result.status === 'approved' && result.credentials) {

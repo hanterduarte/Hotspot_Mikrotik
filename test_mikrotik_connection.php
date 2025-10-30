@@ -1,83 +1,104 @@
 <?php
-// test_mikrotik_connection.php - Script de diagnóstico para API MikroTik
+// test_mikrotik_connection.php - Testa a conexão com o MikroTik e a criação de usuário
 
+// Inclui os arquivos essenciais
 require_once 'config.php';
-require_once 'MikrotikAPI.php'; // Sua classe de comunicação com o Mikrotik
+require_once 'MikrotikAPI.php';
 
-header('Content-Type: text/plain');
+// Configurações para teste
+$test_customer_name = "Teste Integracao";
+$test_profile = "default"; // Altere para um perfil válido no seu MikroTik, ex: 1hora, 1dia
 
-// Função de log simplificada para o teste
-function logTest($type, $message) {
-    echo "[$type] " . $message . "\n";
-    if (function_exists('logEvent')) {
-        logEvent("mikrotik_test_$type", $message);
-    }
-}
+echo "<html><head><title>Teste de Conexão MikroTik</title></head><body>";
+echo "<h1>Teste de Conexão e Inserção no MikroTik</h1>";
 
-// --- Parâmetros de Teste (Usuário, Senha, Perfil) ---
-$testUsername = 'teste_hotspot_' . time(); // Usuário único a cada teste
-$testPassword = 'senhateste123';
-// Importante: Altere para um perfil VÁLIDO no seu Mikrotik
-$testProfile = '2h_acesso'; 
+// 1. BUSCA DAS CONFIGURAÇÕES
+echo "<h2>1. Configurações Buscadas da Tabela 'settings':</h2>";
 
-logTest('INFO', "Iniciando teste de conexão e criação de usuário.");
-logTest('INFO', "Usuário de teste: $testUsername | Perfil: $testProfile");
+$mikrotik_host = getSetting('mikrotik_host', '192.168.1.1');
+$mikrotik_port = getSetting('mikrotik_port', '8728');
+$mikrotik_user = getSetting('mikrotik_user', 'api_user');
+$mikrotik_pass = getSetting('mikrotik_password', 'sua_senha'); // Senha API (visível agora)
+
+echo "<ul>";
+echo "<li><strong>Host:</strong> " . htmlspecialchars($mikrotik_host) . "</li>";
+echo "<li><strong>Porta:</strong> " . htmlspecialchars($mikrotik_port) . "</li>";
+echo "<li><strong>Usuário API:</strong> " . htmlspecialchars($mikrotik_user) . "</li>";
+// AJUSTE REALIZADO AQUI: Exibir a senha em texto claro
+echo "<li><strong>Senha API:</strong> <span style='color:blue;'><strong>" . htmlspecialchars($mikrotik_pass) . "</strong></span></li>";
+echo "<li><strong>Perfil de Teste:</strong> " . htmlspecialchars($test_profile) . "</li>";
+echo "</ul>";
+
+echo "<hr>";
+
+
+// 2. GERAÇÃO DE CREDENCIAIS DE TESTE
+echo "<h2>2. Geração de Credenciais de Teste:</h2>";
 
 try {
-    // 1. Inicializar a API
-    $mt = new MikrotikAPI();
-    logTest('INFO', "Classe MikrotikAPI inicializada.");
+    // Usando a função estática da MikrotikAPI
+    $credentials = MikrotikAPI::generateRandomCredentials($test_customer_name);
+    $test_username = $credentials['username'];
+    $test_password = $credentials['password'];
+    $test_comment = "Teste - " . date("YmdHis");
+    
+    echo "<ul>";
+    echo "<li><strong>Usuário Gerado:</strong> " . htmlspecialchars($test_username) . "</li>";
+    echo "<li><strong>Senha Gerada:</strong> " . htmlspecialchars($test_password) . "</li>";
+    echo "<li><strong>Comentário:</strong> " . htmlspecialchars($test_comment) . "</li>";
+    echo "</ul>";
+} catch (Throwable $e) {
+    echo "<p style='color:red;'><strong>ERRO:</strong> Falha ao gerar credenciais. Certifique-se de que a função `generateRandomCredentials` na `MikrotikAPI.php` está correta.</p>";
+    echo "<p>Detalhe: " . htmlspecialchars($e->getMessage()) . "</p>";
+    exit;
+}
 
-    // 2. Tentar Conectar
-    if (!$mt->connect()) {
-        logTest('ERROR', "Falha ao conectar e autenticar no MikroTik. Verifique as configurações (host/user/pass/port) no DB ou no MikrotikAPI.php.");
+echo "<hr>";
+
+
+// 3. TENTATIVA DE CONEXÃO E INSERÇÃO NO MIKROTIK
+echo "<h2>3. Tentativa de Conexão e Criação de Usuário:</h2>";
+
+try {
+    // Instancia a classe de API
+    $mikrotikApi = new MikrotikAPI($mikrotik_host, $mikrotik_user, $mikrotik_pass, $mikrotik_port);
+
+    // Tenta a conexão
+    if (!$mikrotikApi->connect()) {
+        echo "<p style='color:red;'><strong>FALHA NA CONEXÃO.</strong> Verifique se o Host/Porta e o Usuário/Senha API (acima) estão corretos e configurados no MikroTik.</p>";
+        // logEvent já deve ter registrado o erro de login
         exit;
     }
-    logTest('SUCCESS', "Conexão e autenticação no MikroTik OK.");
 
-    // 3. Simular a Criação do Usuário
-    
-    // ATENÇÃO: Os comandos abaixo são a base do que o createHotspotUser deve fazer.
-    // Eles precisam de um perfil VÁLIDO. Se você não tem '2h', use um que exista.
-    $command = [
-        '/ip/hotspot/user/add',
-        '=name=' . $testUsername,
-        '=password=' . $testPassword,
-        '=profile=' . $testProfile
-        // Adicione outras flags se for necessário (ex: '=server=hotspot1')
-    ];
-    
-    // Executar o comando de criação
-    $mt->write($command);
-    $response = $mt->read();
-    
-    // O Mikrotik retorna uma resposta vazia ou !done em caso de sucesso
-    if (isset($response[0]['!trap'])) {
-        logTest('ERROR', "Erro RouterOS ao criar usuário: " . json_encode($response));
+    echo "<p style='color:green;'>✅ **Conexão estabelecida com sucesso!**</p>";
+
+    // Tenta criar o usuário
+    $result = $mikrotikApi->createHotspotUser($test_username, $test_password, $test_profile, $test_comment);
+
+    if ($result['success']) {
+        echo "<p style='color:green;'>✅ **Usuário criado com sucesso no Hotspot!**</p>";
+        echo "<p>Usuário: <strong>" . htmlspecialchars($test_username) . "</strong></p>";
+        echo "<p>Senha: <strong>" . htmlspecialchars($test_password) . "</strong></p>";
+        
+        // 4. LIMPEZA (OPCIONAL)
+        // Tentativa de remover o usuário de teste para evitar lixo
+        $removeResult = $mikrotikApi->removeUser($test_username);
+        if ($removeResult['success']) {
+             echo "<p style='color:blue;'>ℹ️ Usuário de teste <strong>removido</strong> com sucesso após o teste.</p>";
+        } else {
+             echo "<p style='color:orange;'>⚠️ Não foi possível remover o usuário de teste. Remova manualmente: " . htmlspecialchars($removeResult['message']) . "</p>";
+        }
+        
     } else {
-        logTest('SUCCESS', "Usuário $testUsername criado com sucesso no MikroTik.");
-        
-        // 4. Testar a Remoção do Usuário (Limpeza)
-        // Isso verifica a funcionalidade de remove e limpa o Mikrotik
-        $mt->write('/ip/hotspot/user/remove', false);
-        $mt->write('=.id=' . $testUsername, false);
-        $mt->read(); // Apenas lê a resposta
-        
-        // Como o 'remove' usa o 'name' em vez do '.id' (que é mais seguro), 
-        // é melhor usar o método userExists() ou um comando 'print' para verificar.
-        
-        // Chamada direta para um método de remoção mais seguro (se você o tiver)
-        // $removeResult = $mt->removeUser($testUsername); 
-        // logTest('INFO', "Tentativa de remoção: " . ($removeResult['success'] ? 'SUCESSO' : 'FALHA'));
+        echo "<p style='color:red;'>❌ **FALHA AO CRIAR USUÁRIO NO MIKROTIK.**</p>";
+        echo "<p>Mensagem de Erro: " . htmlspecialchars($result['message']) . "</p>";
+        echo "<p>Verifique se o perfil <strong>" . htmlspecialchars($test_profile) . "</strong> existe no seu Hotspot.</p>";
     }
 
 } catch (Exception $e) {
-    logTest('FATAL_ERROR', "Exceção não tratada no PHP: " . $e->getMessage());
+    echo "<p style='color:red;'><strong>ERRO DE EXECUÇÃO:</strong> " . htmlspecialchars($e->getMessage()) . "</p>";
+    echo "<p>Linha: " . $e->getLine() . "</p>";
 }
 
-if (isset($mt)) {
-    $mt->disconnect();
-}
-logTest('INFO', "Teste finalizado.");
-
+echo "<hr>Fim do Teste.</body></html>";
 ?>
