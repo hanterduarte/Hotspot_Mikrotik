@@ -64,6 +64,7 @@ function getSetting($key, $default = null) {
         $result = $stmt->fetch();
         return $result ? $result['setting_value'] : $default;
     } catch(Exception $e) {
+        // Em caso de erro (ex: tabela settings não existe), retorna o default
         return $default;
     }
 }
@@ -87,11 +88,68 @@ function saveSetting($key, $value) {
 function logEvent($type, $message, $related_id = null) {
     try {
         $db = Database::getInstance()->getConnection();
+        // Garante que a mensagem não exceda o limite da coluna (ex: 65535 para TEXT)
+        $message = substr($message, 0, 65500); 
         $stmt = $db->prepare("INSERT INTO logs (log_type, log_message, related_id) VALUES (?, ?, ?)");
         return $stmt->execute([$type, $message, $related_id]);
     } catch(Exception $e) {
         error_log("Erro ao registrar log: " . $e->getMessage());
         return false;
+    }
+}
+
+// --- FUNÇÃO ADICIONADA: Envio de Credenciais por E-mail ---
+function sendCredentialsEmail($toEmail, $userName, $password, $planName) {
+    // !!! IMPORTANTE: SUBSTITUA ESTA FUNÇÃO PELA SUA LÓGICA REAL DE ENVIO DE E-MAIL (PHPMailer, etc.) !!!
+    
+    $subject = 'Suas Credenciais de Acesso ao WiFi Hotspot (' . $planName . ')';
+    $message = "
+        Olá,
+        
+        Seu pagamento foi confirmado e seu acesso liberado!
+        
+        Aqui estão suas credenciais para acessar o nosso WiFi ($planName):
+        Usuário: $userName
+        Senha: $password
+        
+        Guarde esta informação em local seguro.
+        Obrigado!
+    ";
+    
+    // Simulação do envio (Loga o evento para confirmação)
+    logEvent('email_info', "Email de credenciais simulado enviado para $toEmail. Usuário: $userName");
+
+    // Se quiser usar a função mail() nativa do PHP, descomente e configure seu servidor:
+    // return mail($toEmail, $subject, $message, 'From: Suporte Hotspot <nao-responda@seusite.com>');
+
+    return true; 
+}
+// --- Fim da Função Adicionada ---
+
+// Função para criar ou obter um cliente
+function createOrGetCustomer($db, $customerData) {
+    // 1. Tenta encontrar o cliente pelo email
+    $stmt = $db->prepare("SELECT id FROM customers WHERE email = ?");
+    $stmt->execute([$customerData['email']]);
+    $customer = $stmt->fetch();
+
+    if ($customer) {
+        // Cliente encontrado, retorna o ID
+        return $customer['id'];
+    } else {
+        // 2. Cliente não encontrado, cria um novo
+        $stmt = $db->prepare("
+            INSERT INTO customers (name, email, phone, cpf) 
+            VALUES (?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $customerData['name'],
+            $customerData['email'],
+            $customerData['phone'],
+            $customerData['cpf']
+        ]);
+        // Retorna o ID do novo cliente
+        return $db->lastInsertId();
     }
 }
 
@@ -172,7 +230,13 @@ set_exception_handler(function($exception) {
     logEvent('exception', $exception->getMessage());
     if (php_sapi_name() !== 'cli') {
         http_response_code(500);
-        echo json_encode(['error' => 'Ocorreu um erro interno. Por favor, tente novamente.']);
+        // Exibe uma mensagem genérica de erro no formato JSON para requisições
+        if (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false) {
+             echo json_encode(['error' => 'Ocorreu um erro interno. Por favor, tente novamente.']);
+        } else {
+             // Se não for uma requisição JSON, mostra uma página de erro simples
+             echo "<h1>Erro 500</h1><p>Ocorreu um erro interno. Verifique os logs para detalhes.</p>";
+        }
     }
 });
 ?>

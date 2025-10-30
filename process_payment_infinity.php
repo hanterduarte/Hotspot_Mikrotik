@@ -52,8 +52,8 @@ try {
     
     // 4. Criar a transação inicial (status: pending)
     $stmt = $db->prepare("
-        INSERT INTO transactions (customer_id, plan_id, amount, payment_method, payment_status)
-        VALUES (?, ?, ?, ?, 'pending')
+        NSERT INTO transactions (customer_id, plan_id, amount, payment_method, payment_status, gateway)
+        VALUES (?, ?, ?, ?, 'pending', 'infinitypay')
     ");
     $stmt->execute([$customerId, $planId, $plan['price'], 'infinitepay_checkout']);
     $transactionId = $db->lastInsertId(); 
