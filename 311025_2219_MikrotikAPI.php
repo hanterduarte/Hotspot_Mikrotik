@@ -3,7 +3,6 @@
 
 // Dependência de configuração e funções utilitárias
 require_once 'config.php'; 
-require_once 'routeros_api.class.php';
 // A classe 'routeros_api' deve ser incluída (require_once 'routeros_api.class.php';) no ponto de entrada do script.
 // Não a incluímos aqui para evitar erro de redeclaração se já tiver sido carregada.
 

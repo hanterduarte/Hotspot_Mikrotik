@@ -64,7 +64,6 @@ function getSetting($key, $default = null) {
         $result = $stmt->fetch();
         return $result ? $result['setting_value'] : $default;
     } catch(Exception $e) {
-        // Em caso de erro (ex: tabela settings não existe), retorna o default
         return $default;
     }
 }
@@ -88,8 +87,6 @@ function saveSetting($key, $value) {
 function logEvent($type, $message, $related_id = null) {
     try {
         $db = Database::getInstance()->getConnection();
-        // Garante que a mensagem não exceda o limite da coluna (ex: 65535 para TEXT)
-        $message = substr($message, 0, 65500); 
         $stmt = $db->prepare("INSERT INTO logs (log_type, log_message, related_id) VALUES (?, ?, ?)");
         return $stmt->execute([$type, $message, $related_id]);
     } catch(Exception $e) {
@@ -97,34 +94,6 @@ function logEvent($type, $message, $related_id = null) {
         return false;
     }
 }
-
-// --- FUNÇÃO ADICIONADA: Envio de Credenciais por E-mail ---
-function sendCredentialsEmail($toEmail, $userName, $password, $planName) {
-    // !!! IMPORTANTE: SUBSTITUA ESTA FUNÇÃO PELA SUA LÓGICA REAL DE ENVIO DE E-MAIL (PHPMailer, etc.) !!!
-    
-    $subject = 'Suas Credenciais de Acesso ao WiFi Hotspot (' . $planName . ')';
-    $message = "
-        Olá,
-        
-        Seu pagamento foi confirmado e seu acesso liberado!
-        
-        Aqui estão suas credenciais para acessar o nosso WiFi ($planName):
-        Usuário: $userName
-        Senha: $password
-        
-        Guarde esta informação em local seguro.
-        Obrigado!
-    ";
-    
-    // Simulação do envio (Loga o evento para confirmação)
-    logEvent('email_info', "Email de credenciais simulado enviado para $toEmail. Usuário: $userName");
-
-    // Se quiser usar a função mail() nativa do PHP, descomente e configure seu servidor:
-    // return mail($toEmail, $subject, $message, 'From: Suporte Hotspot <nao-responda@seusite.com>');
-
-    return true; 
-}
-// --- Fim da Função Adicionada ---
 
 // Função para criar ou obter um cliente
 function createOrGetCustomer($db, $customerData) {
@@ -159,7 +128,7 @@ function generateUsername($prefix = 'user') {
 }
 
 // Função para gerar senha aleatória
-function generatePassword($length = 8) {
+function generatePassword($length = 10) { 
     $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     $password = '';
     for ($i = 0; $i < $length; $i++) {
@@ -230,13 +199,64 @@ set_exception_handler(function($exception) {
     logEvent('exception', $exception->getMessage());
     if (php_sapi_name() !== 'cli') {
         http_response_code(500);
-        // Exibe uma mensagem genérica de erro no formato JSON para requisições
-        if (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false) {
-             echo json_encode(['error' => 'Ocorreu um erro interno. Por favor, tente novamente.']);
-        } else {
-             // Se não for uma requisição JSON, mostra uma página de erro simples
-             echo "<h1>Erro 500</h1><p>Ocorreu um erro interno. Verifique os logs para detalhes.</p>";
-        }
+        echo json_encode(['error' => 'Ocorreu um erro interno. Por favor, tente novamente.']);
     }
 });
+
+
+// ----------------------------------------------------------------------
+// FUNÇÕES DE SERVIÇO (EMAIL)
+// ----------------------------------------------------------------------
+
+
+/**
+ * Função placeholder para envio de e-mail. 
+ * Recomenda-se usar PHPMailer ou um serviço de SMTP externo.
+ */
+function sendEmail($to, $subject, $body) {
+    // Configuração base (ajuste 'seudominio.com.br' nas settings)
+    $domain = getSetting('base_domain', 'wifibarato.maiscoresed.com.br');
+    $headers = "From: WiFi Barato <noreply@$domain>\r\n";
+    $headers .= "MIME-Version: 1.0\r\n";
+    $headers .= "Content-type: text/html; charset=UTF-8\r\n";
+    
+    // A função mail() nativa precisa de um servidor de e-mail configurado no PHP
+    if (getSetting('enable_email_sending', 'false') === 'true' && @mail($to, $subject, $body, $headers)) {
+        logEvent('email_success', "Email de credenciais enviado para $to");
+        return true;
+    } else {
+        logEvent('email_info', "Email de credenciais não enviado (Função mail() não usada ou desabilitada).");
+        return false;
+    }
+}
+
+/**
+ * Função para formatar e enviar o email com as credenciais.
+ */
+function sendHotspotCredentialsEmail($email, $username, $password, $expiresAt, $planName) {
+    $subject = "Suas Credenciais WiFi - Pagamento Aprovado!";
+    $body = "
+        <html>
+        <head>
+            <title>$subject</title>
+        </head>
+        <body>
+            <h1>Acesso WiFi Liberado!</h1>
+            <p>Seu pagamento foi aprovado e seu acesso ao plano <strong>$planName</strong> está ativo.</p>
+            <p>Use as credenciais abaixo para se conectar à nossa rede:</p>
+            
+            <div style='background: #f4f4f4; padding: 15px; border-radius: 5px; border: 1px solid #ddd; max-width: 400px;'>
+                <p><strong>Usuário:</strong> $username</p>
+                <p><strong>Senha:</strong> $password</p>
+                <p><strong>Expira em:</strong> " . date('d/m/Y H:i:s', strtotime($expiresAt)) . "</p>
+            </div>
+            
+            <p>Obrigado!</p>
+        </body>
+        </html>
+    ";
+    
+    return sendEmail($email, $subject, $body);
+}
+
 ?>
