@@ -5,6 +5,14 @@ require_once 'config.php';
 $db = Database::getInstance()->getConnection();
 $stmt = $db->query("SELECT * FROM plans WHERE active = 1 ORDER BY price ASC");
 $plans = $stmt->fetchAll();
+
+/*
+    ATENÇÃO: A função formatMoney() foi removida daqui, 
+    pois o erro (Fatal error: Cannot redeclare formatMoney()) indica que ela já está definida em config.php.
+    Certifique-se de que a função exista e esteja acessível em config.php.
+*/
+
+// A partir de agora, o uso da função deve chamar a versão que está no config.php.
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -65,6 +73,91 @@ $plans = $stmt->fetchAll();
             text-align: justify;
             margin-bottom: 12px;
         }
+
+        /* ----- ESTILOS DO LOGIN BOX (Importado de login.html) ----- */
+        .login-box {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            margin-bottom: 40px;
+        }
+
+        .login-box h2 {
+            color: #1e88e5;
+            margin-bottom: 10px;
+            text-align: center;
+            font-size: 1.8em;
+        }
+
+        .login-box > p {
+            color: #666;
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .info-message {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .info-message.alert {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+        
+        /* O .form-group já existia, mas o do login é diferente pelo ícone. */
+        .login-box .form-group { 
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .login-box .form-group input {
+            width: 100%;
+            padding: 15px 15px 15px 45px; /* Adicionado padding-left para o ícone */
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+        }
+
+        .login-box .form-group input:focus {
+            outline: none;
+            border-color: #1e88e5;
+        }
+
+        /* Nota: Para exibir ícones SVG, você precisará de uma biblioteca ou de arquivos SVG no seu projeto */
+        .login-box .form-group .ico { 
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 20px;
+            opacity: 0.5;
+        }
+
+        .submit-btn {
+            background: linear-gradient(135deg, #1e88e5 0%, #0d47a1 100%);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 1.2em;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .submit-btn:hover {
+            transform: scale(1.02);
+        }
+        /* ----- FIM DOS ESTILOS DO LOGIN BOX ----- */
 
         .plans-section {
             margin: 40px 0;
@@ -433,9 +526,28 @@ $plans = $stmt->fetchAll();
     </style>
 </head>
 <body>
+    
+    $(if chap-id)
+    <form name="sendin" action="$(link-login-only)" method="post" style="display:none">
+        <input type="hidden" name="username" />
+        <input type="hidden" name="password" />
+        <input type="hidden" name="dst" value="$(link-orig)" />
+        <input type="hidden" name="popup" value="true" />
+    </form>
+
+    <script src="/md5.js"></script>
+    <script>
+        function doLogin() {
+            document.sendin.username.value = document.login.username.value;
+            document.sendin.password.value = hexMD5('$(chap-id)' + document.login.password.value + '$(chap-challenge)');
+            document.sendin.submit();
+            return false;
+        }
+    </script>
+    $(endif)
     <div class="container">
         <div class="header">
-            <img src="img/wifi-barato-logo.png" alt="WiFi Barato" class="logo">
+            <img src="img/wifi-barato-logo.png" alt="WiFi Barato" class="logo"> 
         </div>
 
         <div class="intro-box">
@@ -444,7 +556,61 @@ $plans = $stmt->fetchAll();
             <p>Conecte-se com planos de curta duração ou escolha nosso plano mensal, ideal para quem busca uma solução completa sem a necessidade de contratos de fidelidade.</p>
         </div>
 
-        <!-- Formulário de Cadastro e Pagamento -->
+        <div class="login-box">
+            <h2>Acesse a Internet</h2>
+            <p>Digite seu usuário e senha para conectar</p>
+
+            $(if error)
+            <div class="info-message alert">$(error)</div>
+            $(endif)
+
+            <form name="login" action="$(link-login-only)" method="post" $(if chap-id) onSubmit="return doLogin()" $(endif)>
+                <input type="hidden" name="dst" value="$(link-orig)" />
+                <input type="hidden" name="popup" value="true" />
+                
+                <div class="form-group">
+                    <svg class="ico" fill="#666" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                    </svg>
+                    <input name="username" type="text" value="$(username)" placeholder="Usuário" required autofocus />
+                </div>
+
+                <div class="form-group">
+                    <svg class="ico" fill="#666" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+                    </svg>
+                    <input name="password" type="password" placeholder="Senha" required />
+                </div>
+
+                <button type="submit" class="submit-btn">Conectar Agora</button>
+            </form>
+        </div>
+        <div id="plansSection" class="plans-section">
+            <div class="plans-title">
+                <h3>💰 Escolha seu Plano</h3>
+                <p>Selecione o melhor plano para você</p>
+            </div>
+
+            <div class="plans-grid">
+                <?php 
+                /* NOTA: Agora usamos formatMoney() que deve estar em config.php.
+                   Se der erro de novo, você deve adicioná-la em config.php
+                   (ex: function formatMoney($price) { return 'R$ ' . number_format($price, 2, ',', '.'); } )
+                */
+                foreach ($plans as $plan): 
+                ?>
+                <div class="plan-card" onclick="selectPlan(<?php echo $plan['id']; ?>)" data-plan-id="<?php echo $plan['id']; ?>">
+                    <div class="plan-duration"><?php echo htmlspecialchars($plan['name']); ?></div>
+                    <div class="plan-price"><?php echo formatMoney($plan['price']); ?></div>
+                    <ul class="plan-features">
+                        <li><?php echo htmlspecialchars($plan['description']); ?></li>
+                    </ul>
+                    <button class="select-btn">Escolher este Plano</button>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        
         <div id="formSection" class="form-box">
             <h2>Finalize sua Compra</h2>
 
@@ -508,35 +674,14 @@ $plans = $stmt->fetchAll();
             </div>
         </div>
 
-        <!-- Seleção de Planos -->
-        <div id="plansSection" class="plans-section">
-            <div class="plans-title">
-                <h3>💰 Escolha seu Plano</h3>
-                <p>Selecione o melhor plano para você</p>
-            </div>
+        
 
-            <div class="plans-grid">
-                <?php foreach ($plans as $plan): ?>
-                <div class="plan-card" onclick="selectPlan(<?php echo $plan['id']; ?>)" data-plan-id="<?php echo $plan['id']; ?>">
-                    <div class="plan-duration"><?php echo htmlspecialchars($plan['name']); ?></div>
-                    <div class="plan-price"><?php echo formatMoney($plan['price']); ?></div>
-                    <ul class="plan-features">
-                        <li><?php echo htmlspecialchars($plan['description']); ?></li>
-                    </ul>
-                    <button class="select-btn">Escolher este Plano</button>
-                </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-
-        <!-- Informações Importantes -->
         <div class="info-section">
             <h3>Informações Importantes</h3>
             <h4>Conexão de Alta Performance e Transparência</h4>
             <p>Em qualquer plano que você escolher, a sua velocidade de conexão será a mais rápida que estiver disponível no momento, sem limites de banda ou download. É importante lembrar que, em algumas situações, a conexão pode sofrer quedas ou limitações devido à distância entre você e o ponto de acesso, ou à quantidade de dispositivos conectados na mesma área. Garantimos o nosso melhor para que sua experiência seja sempre a mais fluida possível.</p>
         </div>
 
-        <!-- Contato e Suporte -->
         <div class="contact-section">
             <h3>Contato e Suporte</h3>
             <h4>Conexão Rápida, Estabilidade Garantida.</h4>
@@ -573,7 +718,8 @@ $plans = $stmt->fetchAll();
     <script>
         let selectedPlanId = null;
         let selectedPaymentMethod = null;
-        const plans = <?php echo json_encode($plans); ?>;
+        // O array 'plans' é alimentado pelo PHP no topo do arquivo
+        const plans = <?php echo json_encode($plans); ?>; 
 
         function selectPlan(planId) {
             selectedPlanId = planId;
@@ -597,9 +743,12 @@ $plans = $stmt->fetchAll();
 
             // Atualizar info do plano
             const plan = plans.find(p => p.id == planId);
+            // Formatação manual para o JavaScript, pois a função PHP não está disponível aqui.
+            const formattedPrice = plan.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}); 
+            
             document.getElementById('selectedPlanInfo').innerHTML = `
                 <h4>Plano Selecionado:</h4>
-                <p><strong>${plan.name}</strong> - ${plan.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
+                <p><strong>${plan.name}</strong> - ${formattedPrice}</p>
                 <p style="font-size: 0.9em; margin-top: 5px;">${plan.description}</p>
             `;
         }
@@ -624,12 +773,14 @@ $plans = $stmt->fetchAll();
             document.getElementById('errorMessage').classList.remove('active');
         }
 
-        // Máscaras
+        // Máscaras (CPF e Telefone)
         document.getElementById('phone').addEventListener('input', function(e) {
             let value = e.target.value.replace(/\D/g, '');
             if (value.length <= 11) {
+                // Formato (00) 00000-0000 (celular 9 dígitos)
                 value = value.replace(/^(\d{2})(\d{5})(\d{4}).*/, '($1) $2-$3');
                 if (value.length < 14) {
+                    // Formato (00) 0000-0000 (fixo 8 dígitos)
                     value = value.replace(/^(\d{2})(\d{4})(\d{0,4}).*/, '($1) $2-$3');
                 }
             }
@@ -642,7 +793,7 @@ $plans = $stmt->fetchAll();
             e.target.value = value;
         });
 
-        // Submeter formulário
+        // Submeter formulário de pagamento
         document.getElementById('paymentForm').addEventListener('submit', async function(e) {
             e.preventDefault();
 
@@ -659,6 +810,7 @@ $plans = $stmt->fetchAll();
             document.getElementById('errorMessage').classList.remove('active');
 
             try {
+                // NOTA: Certifique-se que o arquivo process_payment_infinity.php está configurado para receber esta requisição
                 const response = await fetch('process_payment_infinity.php', {
                     method: 'POST',
                     headers: {
@@ -669,14 +821,12 @@ $plans = $stmt->fetchAll();
 
                 const result = await response.json();
 
-                console.log('Resposta do servidor:', result); // Debug
-
                 if (result.success) {
                     // PIX - redirecionar para página com QR Code
                     if (result.data && result.data.payment_id) {
                         window.location.href = 'pix_payment.php?payment_id=' + result.data.payment_id;
                     } 
-                    // Checkout - redirecionar para Mercado Pago
+                    // Checkout (Cartão/Boleto) - redirecionar para a URL do provedor (ex: Mercado Pago)
                     else if (result.data && result.data.redirect_url) {
                         window.location.href = result.data.redirect_url;
                     }
