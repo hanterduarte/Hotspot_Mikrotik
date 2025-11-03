@@ -1,15 +1,9 @@
 <?php
 // process_payment_infinity.php - Processa a requisição e gera o link de checkout
 
-// ==========================================================
-// MANTENHA ESTAS LINHAS ATIVAS PARA VER O ERRO FATAL (SE HOUVER)
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-// ==========================================================
-
 require_once 'config.php';
 require_once 'InfinityPay.php'; 
+// OBS: A função createOrGetCustomer() deve estar disponível via config.php
 
 header('Content-Type: application/json');
 
@@ -37,54 +31,45 @@ if (!validateEmail($email) || !validateCPF($cpf)) {
     jsonResponse(false, 'Dados de cliente inválidos (Email/CPF)');
 }
 
-$transactionId = 0; 
-
 try {
     $db = Database::getInstance()->getConnection();
     $db->beginTransaction();
 
     // 2. Buscar plano
-    $stmt = $db->prepare("SELECT * FROM plans WHERE id = ?");
+    $stmt = $db->prepare("SELECT * FROM plans WHERE id = ? AND active = 1");
     $stmt->execute([$planId]);
     $plan = $stmt->fetch();
 
     if (!$plan) {
-        throw new Exception('Plano não encontrado.');
+        $db->rollBack();
+        jsonResponse(false, 'Plano não encontrado ou inativo');
     }
-
-    // 3. Criar ou obter o cliente
-    // ATENÇÃO: Se a função 'createOrGetCustomer' não estiver no seu config.php, o erro será aqui.
-    $customerData = createOrGetCustomer($name, $email, $phone, $cpf);
-    $customerId = $customerData['id'];
-
-    // 4. Iniciar transação no DB
-    $stmt = $db->prepare("INSERT INTO transactions (customer_id, plan_id, amount, payment_method, status) VALUES (?, ?, ?, ?, 'pending')");
+    
+    // 3. Criar ou buscar cliente
+    $customerData = ['name' => $name, 'email' => $email, 'phone' => $phone, 'cpf' => $cpf];
+    // **Assumindo que createOrGetCustomer existe e retorna o customerId**
+    $customerId = createOrGetCustomer($db, $customerData); 
+    
+    // 4. Criar a transação inicial (status: pending)
+    $stmt = $db->prepare("
+        INSERT INTO transactions (customer_id, plan_id, amount, payment_method, payment_status)
+        VALUES (?, ?, ?, ?, 'pending')
+    ");
     $stmt->execute([$customerId, $planId, $plan['price'], 'infinitepay_checkout']);
     $transactionId = $db->lastInsertId(); 
     
-    // ==========================================================
-    // CORREÇÃO CRÍTICA DO HANDLE
-    // ==========================================================
-    $ipHandle = getSetting('infinitepay_handle');
-    if (empty($ipHandle)) {
-        // Esta exceção é um forte candidato, pois acontecia antes.
-        logEvent('ip_handle_missing_fatal', 'InfiniteTag faltando no DB antes da criação da classe.', $transactionId);
-        throw new Exception('Erro de Configuração: InfiniteTag faltando (Verifique a tabela settings).');
-    }
-    
     // 5. Gerar o link de checkout na InfinitePay
-    $ip = new InfinityPay($ipHandle); // Requer a versão correta do InfinityPay.php
+    $ip = new InfinityPay();
     
     $result = $ip->createCheckoutLink($plan, $customerData, $transactionId);
     
     if ($result['success']) {
         $redirectUrl = $result['url'];
 
-        // 6. Atualizar transação com a referência externa e invoice_slug
-        $stmt = $db->prepare("UPDATE transactions SET infinitypay_order_id = ?, infinitypay_invoice_slug = ? WHERE id = ?");
+        // 6. Atualizar transação com a referência externa (order_nsu)
+        $stmt = $db->prepare("UPDATE transactions SET infinitypay_order_id = ? WHERE id = ?");
         $stmt->execute([
             strval($transactionId), 
-            $result['invoice_slug'] ?? null,
             $transactionId
         ]);
         
@@ -102,17 +87,11 @@ try {
         jsonResponse(false, 'Erro ao criar pedido de pagamento: ' . $result['message']);
     }
 } catch (Exception $e) {
-    $finalTransactionId = isset($transactionId) ? $transactionId : 0; 
-    
     if (isset($db) && $db->inTransaction()) {
         $db->rollBack();
     }
-    
-    // LOG NO DB
-    logEvent('system_error', 'Exceção em process_payment_infinity.php: ' . $e->getMessage(), $finalTransactionId);
-    
-    // ==========================================================
-    // MUDANÇA CRÍTICA: RETORNA A MENSAGEM DA EXCEÇÃO (para debug)
-    jsonResponse(false, 'ERRO INTERNO: ' . $e->getMessage()); 
-    // ==========================================================
+    logEvent('payment_exception', $e->getMessage());
+    jsonResponse(false, 'Erro ao processar a requisição: ' . $e->getMessage());
 }
+
+?>

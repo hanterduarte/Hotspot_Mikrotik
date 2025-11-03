@@ -535,7 +535,7 @@ $plans = $stmt->fetchAll();
         <input type="hidden" name="popup" value="true" />
     </form>
 
- 
+    <script src="/md5.js"></script>
     <script>
         function doLogin() {
             document.sendin.username.value = document.login.username.value;

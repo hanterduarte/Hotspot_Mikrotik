@@ -2,7 +2,7 @@
 // webhook_infinitypay.php - Recebe e processa as notificações da InfinitePay
 
 require_once 'config.php';
-require_once 'MikrotikAPI.php'; // MikrotikAPI agora inclui routeros_api.class.php internamente
+require_once 'MikrotikAPI.php'; // Inclui as funções de provisionamento e bypass
 
 header('Content-Type: application/json');
 
@@ -37,7 +37,6 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         $db->beginTransaction();
         
         // a. Buscar transação pelo ID interno (order_nsu)
-        // OBS: duration_seconds e plan_name são buscados aqui, mas o MikrotikAPI.php fará sua própria busca de dados do plano.
         $stmt = $db->prepare("
             SELECT t.*, c.name as customer_name, c.email, p.duration_seconds, p.name as plan_name
             FROM transactions t
@@ -66,20 +65,20 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
                 payment_status = 'success',
                 infinitypay_order_id = ?,
                 paid_at = NOW(),
-                gateway = ?,                 /* AJUSTADO: Gateway fixo 'infinitepay_checkout' */
-                payment_method = ?,          /* AJUSTADO: Recebe o capture_method */
-                payment_id = ?,              /* Recebe o invoice_slug */
+                gateway = ?,                 
+                payment_method = ?,          
+                payment_id = ?,              
                 updated_at = NOW(),
                 gateway_response = JSON_SET(COALESCE(gateway_response, '{}'), '$.transaction_nsu', ?)
             WHERE id = ?
         ");
         $updateStmt->execute([
-            $transactionNsu,    // 1. infinitypay_order_id
-            'infinitepay_checkout',      // 2. gateway (Valor fixo)
-            $captureMethod,     // 3. payment_method (Método de captura)
-            $invoiceSlug,       // 4. payment_id (invoice_slug)
-            $transactionNsu,    // 5. transaction_nsu no gateway_response
-            $transactionId      // 6. WHERE id
+            $transactionNsu,    
+            'infinitepay_checkout',      
+            $captureMethod,     
+            $invoiceSlug,       
+            $transactionNsu,    
+            $transactionId      
         ]);
         
         // ----------------------------------------------------
@@ -87,22 +86,38 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         // ----------------------------------------------------
         
         $mt = new MikrotikAPI(); // Classe MikrotikAPI
-        
-        // !!! CORREÇÃO APLICADA: Chamando o método correto com argumentos corretos !!!
         $userCreationResult = $mt->createHotspotUser($transaction);
-        // !!! FIM DA CORREÇÃO !!!
         
         if ($userCreationResult['success']) {
+            
+            // ======================================================================
+            // REMOVER Bypass de IP após provisionamento
+            // ======================================================================
+            $mikrotikBypassId = $transaction['mikrotik_bypass_id'] ?? null;
+            
+            if (!empty($mikrotikBypassId)) {
+                $removeResult = $mt->removeBypass($mikrotikBypassId); // Remove o ID obtido no process_payment
+                
+                if (!$removeResult['success']) {
+                     // Loga o erro, mas não reverte a transação de venda.
+                     logEvent('mikrotik_warning', "Falha ao remover IP Bypass ID $mikrotikBypassId. Erro: " . $removeResult['message']);
+                } else {
+                     logEvent('mikrotik_info', "IP Bypass ID $mikrotikBypassId removido com sucesso.");
+                }
+            } else {
+                logEvent('mikrotik_warning', "Transação $transactionId não tinha mikrotik_bypass_id para remoção.");
+            }
+            // ======================================================================
+
             // Sucesso total, comitar a transação e as credenciais
             $db->commit();
             
             // Envio de E-mail com as credenciais
-            // Os dados completos (username, password, expires_at, plan_name) vêm de $userCreationResult
             sendHotspotCredentialsEmail(
                 $transaction['email'], 
                 $userCreationResult['username'], 
                 $userCreationResult['password'], 
-                $userCreationResult['expires_at'] ?? 'Não Definido', // ATENÇÃO: Verifique onde expires_at é definido.
+                $userCreationResult['expires_at'] ?? 'Não Definido', 
                 $transaction['plan_name']
             );
 
@@ -118,23 +133,23 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
             // Falha na criação/salvamento do usuário, reverter a transação
             $db->rollBack();
             logEvent('webhook_error', "Pagamento $invoiceSlug aprovado, mas falha ao criar usuário MikroTik/DB: " . $userCreationResult['message'], $transactionId);
-            http_response_code(500); // Erro de negócio/infra
+            http_response_code(500); 
             jsonResponse(false, 'Falha interna ao criar usuário MikroTik: ' . $userCreationResult['message']);
         }
 
 
-    } catch (Throwable $e) { // Captura Exception e Error (como o erro fatal de função inexistente)
+    } catch (Throwable $e) { 
         if ($db->inTransaction()) {
             $db->rollBack();
         }
         logEvent('webhook_exception', "Exceção no webhook InfinitePay: " . $e->getMessage(), $transactionId ?? 0);
-        http_response_code(500); // Erro de servidor
+        http_response_code(500); 
         jsonResponse(false, 'Ocorreu um erro interno. Por favor, tente novamente.');
     }
 } else {
     // Para outros status (Ex: pending, cancelled).
     logEvent('webhook_info', "Status InfinitePay recebido: $paymentStatus. Nenhuma ação de ativação tomada.", $transactionId);
-    http_response_code(200); // Responder OK para status que não ativam
+    http_response_code(200); 
     jsonResponse(true, 'Status recebido, nenhuma ação de ativação necessária.');
 }
 ?>

@@ -2,7 +2,7 @@
 // webhook_infinitypay.php - Recebe e processa as notificações da InfinitePay
 
 require_once 'config.php';
-require_once 'MikrotikAPI.php';
+require_once 'MikrotikAPI.php'; // MikrotikAPI agora inclui routeros_api.class.php internamente
 
 header('Content-Type: application/json');
 
@@ -88,11 +88,9 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         
         $mt = new MikrotikAPI(); // Classe MikrotikAPI
         
-        // Chamada à nova função centralizada no MikrotikAPI.php
-        $userCreationResult = $mt->createHotspotUserMikrotik(
-            $db,        // Conexão com o DB (para buscar plano e salvar credenciais)
-            $transaction // Dados da transação (inclui id, customer_id, plan_id)
-        );
+        // !!! CORREÇÃO APLICADA: Chamando o método correto com argumentos corretos !!!
+        $userCreationResult = $mt->createHotspotUser($transaction);
+        // !!! FIM DA CORREÇÃO !!!
         
         if ($userCreationResult['success']) {
             // Sucesso total, comitar a transação e as credenciais
@@ -104,8 +102,8 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
                 $transaction['email'], 
                 $userCreationResult['username'], 
                 $userCreationResult['password'], 
-                $userCreationResult['expires_at'],
-                $userCreationResult['plan_name'] // Obtido dentro do método MikrotikAPI
+                $userCreationResult['expires_at'] ?? 'Não Definido', // ATENÇÃO: Verifique onde expires_at é definido.
+                $transaction['plan_name']
             );
 
             logEvent('webhook_success', "Pagamento $invoiceSlug aprovado. Usuário criado e e-mail enviado.", $transactionId);
@@ -125,7 +123,7 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         }
 
 
-    } catch (Exception $e) {
+    } catch (Throwable $e) { // Captura Exception e Error (como o erro fatal de função inexistente)
         if ($db->inTransaction()) {
             $db->rollBack();
         }

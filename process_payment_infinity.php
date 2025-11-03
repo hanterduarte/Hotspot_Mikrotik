@@ -1,8 +1,9 @@
 <?php
-// process_payment_infinity.php - Processa a requisição e gera o link de checkout
+// process_payment_infinity.php - Processa a requisição, adiciona bypass e gera o link de checkout
 
 require_once 'config.php';
 require_once 'InfinityPay.php'; 
+require_once 'MikrotikAPI.php'; // CRÍTICO: Inclui a API do MikroTik
 // OBS: A função createOrGetCustomer() deve estar disponível via config.php
 
 header('Content-Type: application/json');
@@ -47,7 +48,6 @@ try {
     
     // 3. Criar ou buscar cliente
     $customerData = ['name' => $name, 'email' => $email, 'phone' => $phone, 'cpf' => $cpf];
-    // **Assumindo que createOrGetCustomer existe e retorna o customerId**
     $customerId = createOrGetCustomer($db, $customerData); 
     
     // 4. Criar a transação inicial (status: pending)
@@ -58,7 +58,37 @@ try {
     $stmt->execute([$customerId, $planId, $plan['price'], 'infinitepay_checkout']);
     $transactionId = $db->lastInsertId(); 
     
-    // 5. Gerar o link de checkout na InfinitePay
+    // ======================================================================
+    // MIKROTIK: 5. Adicionar Bypass de IP e capturar dados
+    // ======================================================================
+    $mt = new MikrotikAPI();
+    
+    // addClientBypass chama getClientIP internamente e adiciona o IP Binding
+    $bypassResult = $mt->addClientBypass($transactionId); 
+    
+    if (!$bypassResult['success']) {
+        // Se falhar, reverte a transação e impede o cliente de acessar o checkout
+        $db->rollBack();
+        logEvent('mikrotik_error', "Falha ao adicionar IP Bypass. Transaction ID: $transactionId. Erro: " . $bypassResult['message']);
+        jsonResponse(false, 'Erro ao preparar o acesso para pagamento. Tente novamente: ' . $bypassResult['message']);
+        return; 
+    }
+
+    $clientIP = $bypassResult['client_ip'];
+    $mikrotikBypassId = $bypassResult['bypass_id'];
+    
+    // Atualizar transação com o IP e o ID do bypass (necessário para remover no webhook)
+    $stmt = $db->prepare("
+        UPDATE transactions 
+        SET client_ip = ?, mikrotik_bypass_id = ?
+        WHERE id = ?
+    ");
+    $stmt->execute([$clientIP, $mikrotikBypassId, $transactionId]);
+    // ======================================================================
+
+    // 6. Gerar o link de checkout na InfinitePay
+    logEvent('DEBUG_CHECKOUT_START', "Iniciando chamada de API InfinitePay. Transaction ID: $transactionId"); // NOVO LOG
+    
     $ip = new InfinityPay();
     
     $result = $ip->createCheckoutLink($plan, $customerData, $transactionId);
@@ -66,7 +96,7 @@ try {
     if ($result['success']) {
         $redirectUrl = $result['url'];
 
-        // 6. Atualizar transação com a referência externa (order_nsu)
+        // 7. Atualizar transação com a referência externa (order_nsu)
         $stmt = $db->prepare("UPDATE transactions SET infinitypay_order_id = ? WHERE id = ?");
         $stmt->execute([
             strval($transactionId), 
@@ -74,14 +104,19 @@ try {
         ]);
         
         $db->commit();
-        logEvent('payment_created', "Link de Checkout InfinitePay criado. Transaction ID: $transactionId");
         
-        // 7. Retornar a URL de redirecionamento para o JavaScript
+        // Log original de sucesso
+        logEvent('payment_created', "Link de Checkout InfinitePay criado. Transaction ID: $transactionId. IP Bypass Adicionado: $clientIP"); 
+        
+        // 8. Retornar a URL de redirecionamento para o JavaScript
+        logEvent('DEBUG_CHECKOUT_END', "Gerando resposta final JSON para redirecionamento. URL: $redirectUrl"); // NOVO LOG
+        
         jsonResponse(true, 'Redirecionando para o Checkout da InfinitePay', [
             'redirect_url' => $redirectUrl
         ]);
         
     } else {
+        // Se falhar aqui, o bypass já existe, mas a transação é revertida.
         $db->rollBack();
         logEvent('payment_error', "Erro ao criar link de checkout InfinitePay: " . $result['message'], $transactionId);
         jsonResponse(false, 'Erro ao criar pedido de pagamento: ' . $result['message']);
@@ -93,5 +128,4 @@ try {
     logEvent('payment_exception', $e->getMessage());
     jsonResponse(false, 'Erro ao processar a requisição: ' . $e->getMessage());
 }
-
 ?>
