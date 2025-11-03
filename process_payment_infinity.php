@@ -57,7 +57,7 @@ try {
     ");
     $stmt->execute([$customerId, $planId, $plan['price'], 'infinitepay_checkout']);
     $transactionId = $db->lastInsertId(); 
-    
+    /*
     // ======================================================================
     // MIKROTIK: 5. Adicionar Bypass de IP e capturar dados
     // ======================================================================
@@ -85,7 +85,7 @@ try {
     ");
     $stmt->execute([$clientIP, $mikrotikBypassId, $transactionId]);
     // ======================================================================
-
+*/
     // 6. Gerar o link de checkout na InfinitePay
     logEvent('DEBUG_CHECKOUT_START', "Iniciando chamada de API InfinitePay. Transaction ID: $transactionId"); // NOVO LOG
     
