@@ -809,8 +809,6 @@ $plans = $stmt->fetchAll();
             document.getElementById('paymentForm').style.display = 'none';
             document.getElementById('errorMessage').classList.remove('active');
 
-            passo = 0;
-
             try {
                 // NOTA: Certifique-se que o arquivo process_payment_infinity.php está configurado para receber esta requisição
                 const response = await fetch('process_payment_infinity.php', {
@@ -820,35 +818,30 @@ $plans = $stmt->fetchAll();
                     },
                     body: JSON.stringify(data)
                 });
-                passo = 1;
+
                 const result = await response.json();
-                passo = 2;
+
                 if (result.success) {
-                    passo = 3;
                     // PIX - redirecionar para página com QR Code
                     if (result.data && result.data.payment_id) {
-                        passo = 4;
                         window.location.href = 'pix_payment.php?payment_id=' + result.data.payment_id;
                     } 
                     // Checkout (Cartão/Boleto) - redirecionar para a URL do provedor (ex: Mercado Pago)
                     else if (result.data && result.data.redirect_url) {
-                        passo = 5;
                         window.location.href = result.data.redirect_url;
                     }
                     else {
-                        passo = 6;
                         showError('Erro: resposta inválida do servidor');
                         document.getElementById('loading').classList.remove('active');
                         document.getElementById('paymentForm').style.display = 'block';
                     }
                 } else {
-                    passo = 7;
                     showError(result.message || 'Erro ao processar pagamento');
                     document.getElementById('loading').classList.remove('active');
                     document.getElementById('paymentForm').style.display = 'block';
                 }
             } catch (error) {
-                showError('Erro de conexão. Tente novamente. passo = ' + passo + ', error = ' + JSON.stringify(error));
+                showError('Erro de conexão. Tente novamente.');
                 document.getElementById('loading').classList.remove('active');
                 document.getElementById('paymentForm').style.display = 'block';
             }

@@ -32,7 +32,7 @@ class MikrotikAPI {
         if (class_exists('routeros_api')) { 
             $this->api = new routeros_api(); 
             $this->api->port = $this->port;
-            $this->api->debug = true; 
+           # $this->api->debug = true; 
         } else {
              $this->configError = "A classe 'routeros_api' não foi carregada. Verifique se o arquivo foi incluído antes da MikrotikAPI.";
         }
