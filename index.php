@@ -5,14 +5,6 @@ require_once 'config.php';
 $db = Database::getInstance()->getConnection();
 $stmt = $db->query("SELECT * FROM plans WHERE active = 1 ORDER BY price ASC");
 $plans = $stmt->fetchAll();
-
-/*
-    ATENÇÃO: A função formatMoney() foi removida daqui, 
-    pois o erro (Fatal error: Cannot redeclare formatMoney()) indica que ela já está definida em config.php.
-    Certifique-se de que a função exista e esteja acessível em config.php.
-*/
-
-// A partir de agora, o uso da função deve chamar a versão que está no config.php.
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -74,7 +66,6 @@ $plans = $stmt->fetchAll();
             margin-bottom: 12px;
         }
 
-        /* ----- ESTILOS DO LOGIN BOX (Importado de login.html) ----- */
         .login-box {
             background: white;
             border-radius: 20px;
@@ -109,7 +100,6 @@ $plans = $stmt->fetchAll();
             border: 1px solid #fcc;
         }
         
-        /* O .form-group já existia, mas o do login é diferente pelo ícone. */
         .login-box .form-group { 
             margin-bottom: 20px;
             position: relative;
@@ -117,7 +107,7 @@ $plans = $stmt->fetchAll();
 
         .login-box .form-group input {
             width: 100%;
-            padding: 15px 15px 15px 45px; /* Adicionado padding-left para o ícone */
+            padding: 15px 15px 15px 45px;
             border: 2px solid #e0e0e0;
             border-radius: 10px;
             font-size: 1em;
@@ -129,7 +119,6 @@ $plans = $stmt->fetchAll();
             border-color: #1e88e5;
         }
 
-        /* Nota: Para exibir ícones SVG, você precisará de uma biblioteca ou de arquivos SVG no seu projeto */
         .login-box .form-group .ico { 
             position: absolute;
             left: 15px;
@@ -157,7 +146,6 @@ $plans = $stmt->fetchAll();
         .submit-btn:hover {
             transform: scale(1.02);
         }
-        /* ----- FIM DOS ESTILOS DO LOGIN BOX ----- */
 
         .plans-section {
             margin: 40px 0;
@@ -585,6 +573,7 @@ $plans = $stmt->fetchAll();
                 <button type="submit" class="submit-btn">Conectar Agora</button>
             </form>
         </div>
+        
         <div id="plansSection" class="plans-section">
             <div class="plans-title">
                 <h3>💰 Escolha seu Plano</h3>
@@ -593,10 +582,6 @@ $plans = $stmt->fetchAll();
 
             <div class="plans-grid">
                 <?php 
-                /* NOTA: Agora usamos formatMoney() que deve estar em config.php.
-                   Se der erro de novo, você deve adicioná-la em config.php
-                   (ex: function formatMoney($price) { return 'R$ ' . number_format($price, 2, ',', '.'); } )
-                */
                 foreach ($plans as $plan): 
                 ?>
                 <div class="plan-card" onclick="selectPlan(<?php echo $plan['id']; ?>)" data-plan-id="<?php echo $plan['id']; ?>">
@@ -620,7 +605,9 @@ $plans = $stmt->fetchAll();
 
             <form id="paymentForm">
                 <input type="hidden" id="planId" name="plan_id">
-
+                <input type="hidden" id="clientIp" name="client_ip">
+                <input type="hidden" id="clientMac" name="client_mac">
+                
                 <div class="form-group">
                     <label for="name">Nome Completo *</label>
                     <input type="text" id="name" name="name" autocomplete="name" required>
@@ -674,8 +661,6 @@ $plans = $stmt->fetchAll();
             </div>
         </div>
 
-        
-
         <div class="info-section">
             <h3>Informações Importantes</h3>
             <h4>Conexão de Alta Performance e Transparência</h4>
@@ -716,6 +701,21 @@ $plans = $stmt->fetchAll();
     </div>
 
     <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Captura os parâmetros IP e MAC da URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const ip = urlParams.get('ip') || '0.0.0.0'; 
+            const mac = urlParams.get('mac') || '00:00:00:00:00:00'; 
+
+            // Preenche os campos ocultos do formulário de pagamento
+            document.getElementById('clientIp').value = ip;
+            document.getElementById('clientMac').value = mac;
+
+            // Log de debug no console (opcional, pode remover em produção)
+            console.log("IP Capturado da URL:", ip);
+            console.log("MAC Capturado da URL:", mac);
+        });
+
         let selectedPlanId = null;
         let selectedPaymentMethod = null;
         // O array 'plans' é alimentado pelo PHP no topo do arquivo
@@ -743,7 +743,6 @@ $plans = $stmt->fetchAll();
 
             // Atualizar info do plano
             const plan = plans.find(p => p.id == planId);
-            // Formatação manual para o JavaScript, pois a função PHP não está disponível aqui.
             const formattedPrice = plan.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}); 
             
             document.getElementById('selectedPlanInfo').innerHTML = `
@@ -809,10 +808,7 @@ $plans = $stmt->fetchAll();
             document.getElementById('paymentForm').style.display = 'none';
             document.getElementById('errorMessage').classList.remove('active');
 
-            passo = 0;
-
             try {
-                // NOTA: Certifique-se que o arquivo process_payment_infinity.php está configurado para receber esta requisição
                 const response = await fetch('process_payment_infinity.php', {
                     method: 'POST',
                     headers: {
@@ -820,35 +816,30 @@ $plans = $stmt->fetchAll();
                     },
                     body: JSON.stringify(data)
                 });
-                passo = 1;
+                
                 const result = await response.json();
-                passo = 2;
+                
                 if (result.success) {
-                    passo = 3;
                     // PIX - redirecionar para página com QR Code
                     if (result.data && result.data.payment_id) {
-                        passo = 4;
                         window.location.href = 'pix_payment.php?payment_id=' + result.data.payment_id;
                     } 
-                    // Checkout (Cartão/Boleto) - redirecionar para a URL do provedor (ex: Mercado Pago)
+                    // Checkout (Cartão/Boleto) - redirecionar para a URL do provedor
                     else if (result.data && result.data.redirect_url) {
-                        passo = 5;
                         window.location.href = result.data.redirect_url;
                     }
                     else {
-                        passo = 6;
                         showError('Erro: resposta inválida do servidor');
                         document.getElementById('loading').classList.remove('active');
                         document.getElementById('paymentForm').style.display = 'block';
                     }
                 } else {
-                    passo = 7;
                     showError(result.message || 'Erro ao processar pagamento');
                     document.getElementById('loading').classList.remove('active');
                     document.getElementById('paymentForm').style.display = 'block';
                 }
             } catch (error) {
-                showError('Erro de conexão. Tente novamente. passo = ' + passo + ', error = ' + JSON.stringify(error));
+                showError('Erro de conexão. Tente novamente.');
                 document.getElementById('loading').classList.remove('active');
                 document.getElementById('paymentForm').style.display = 'block';
             }
