@@ -1,5 +1,5 @@
 <?php
-// MikrotikAPI.php - VERSÃO FINAL COM FALLBACK CORRIGIDO PARA CLOUDFLARE
+// MikrotikAPI.php - VERSÃO FINAL (Lê IP/MAC da tabela transactions)
 
 require_once 'config.php'; 
 require_once 'routeros_api.class.php';
@@ -51,119 +51,19 @@ class MikrotikAPI {
     }
     
     // ======================================================================
-    // FUNÇÕES DE BYPASS VIA IP BINDINGS (COM FALLBACK OTIMIZADO PARA CLOUDFLARE)
+    // FUNÇÕES DE BYPASS VIA IP BINDINGS
     // ======================================================================
 
     /**
-     * Detecta o IP real do cliente via headers HTTP (FALLBACK OTIMIZADO)
-     * PRIORIZA headers do Cloudflare e proxies reversos
-     * @return string IP detectado ou '0.0.0.0' se falhar
-     */
-    private function detectClientIP(): string {
-        $ip_candidates = [];
-
-        // PRIORIDADE 5: REMOTE_ADDR (conexão direta - MENOS CONFIÁVEL com Cloudflare)
-        if (!empty($_SERVER['REMOTE_ADDR'])) {
-            $ip_candidates[] = ['ip' => $_SERVER['REMOTE_ADDR'], 'source' => 'REMOTE_ADDR'];
-        }
-
-        // PRIORIDADE 1: CF-Connecting-IP (Cloudflare - IP REAL do cliente)
-        if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-            $ip_candidates[] = ['ip' => $_SERVER['HTTP_CF_CONNECTING_IP'], 'source' => 'CF-Connecting-IP'];
-        }
-
-        // PRIORIDADE 2: X-Real-IP (Nginx/Proxies)
-        if (!empty($_SERVER['HTTP_X_REAL_IP'])) {
-            $ip_candidates[] = ['ip' => $_SERVER['HTTP_X_REAL_IP'], 'source' => 'X-Real-IP'];
-        }
-
-        // PRIORIDADE 3: X-Forwarded-For (primeiro IP da cadeia)
-        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-            $forwarded_ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-            $ip_candidates[] = ['ip' => trim($forwarded_ips[0]), 'source' => 'X-Forwarded-For'];
-        }
-
-        // PRIORIDADE 4: Client-IP (alguns proxies)
-        if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
-            $ip_candidates[] = ['ip' => $_SERVER['HTTP_CLIENT_IP'], 'source' => 'Client-IP'];
-        }
-
-        
-
-        // Log de debug dos IPs encontrados
-        if (function_exists('logEvent')) {
-            $debug_info = [];
-            foreach ($ip_candidates as $candidate) {
-                $debug_info[] = "{$candidate['source']}: {$candidate['ip']}";
-            }
-            logEvent('mikrotik_debug', "IPs detectados: " . implode(' | ', $debug_info));
-        }
-
-        // Valida e retorna o primeiro IPv4 PRIVADO válido (rede local)
-        // Prioriza IPs da rede local (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
-        foreach ($ip_candidates as $candidate) {
-            $ip = $candidate['ip'];
-            
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                // Verifica se é IP privado (rede local)
-                if ($this->isPrivateIP($ip)) {
-                    logEvent('mikrotik_info', "IP privado detectado via {$candidate['source']}: $ip");
-                    return $ip;
-                }
-            }
-        }
-
-        // Se não encontrou IP privado, retorna o primeiro IP público válido
-        foreach ($ip_candidates as $candidate) {
-            $ip = $candidate['ip'];
-            
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                logEvent('mikrotik_warning', "IP público detectado via {$candidate['source']}: $ip (pode não ser da rede local)");
-                return $ip;
-            }
-        }
-        
-        return '0.0.0.0';
-    }
-
-    /**
-     * Verifica se o IP é privado (rede local)
-     * @param string $ip
-     * @return bool
-     */
-    private function isPrivateIP(string $ip): bool {
-        $private_ranges = [
-            ['10.0.0.0', '10.255.255.255'],       // Classe A privada
-            ['172.16.0.0', '172.31.255.255'],     // Classe B privada
-            ['192.168.0.0', '192.168.255.255'],   // Classe C privada
-        ];
-
-        $ip_long = ip2long($ip);
-        
-        foreach ($private_ranges as $range) {
-            $start = ip2long($range[0]);
-            $end = ip2long($range[1]);
-            
-            if ($ip_long >= $start && $ip_long <= $end) {
-                return true;
-            }
-        }
-        
-        return false;
-    }
-
-    /**
      * Adiciona o IP do cliente no ip-binding com status 'bypassed'.
-     * PRIORIDADE 1: Usa IP/MAC da tabela transactions
-     * PRIORIDADE 2: Se IP zerado, detecta automaticamente (FALLBACK)
+     * ATUALIZADO: Lê IP e MAC da tabela transactions
      * 
      * @param int $transactionId ID da transação
      * @return array Resultado da operação com bypass_id
      */
     public function addClientBypass(int $transactionId): array {
-        $db = Database::getInstance()->getConnection();
-        
         // 1. Buscar IP e MAC da tabela transactions
+        $db = Database::getInstance()->getConnection();
         $stmt = $db->prepare("SELECT client_ip, client_mac FROM transactions WHERE id = ?");
         $stmt->execute([$transactionId]);
         $transaction = $stmt->fetch();
@@ -177,41 +77,13 @@ class MikrotikAPI {
         
         $clientIP = $transaction['client_ip'] ?? '0.0.0.0';
         $clientMAC = $transaction['client_mac'] ?? '00:00:00:00:00:00';
-        $ipSource = 'database';
         
-        // ======================================================================
-        // FALLBACK: Se IP estiver zerado, tenta detectar automaticamente
-        // ======================================================================
-        if ($clientIP === '0.0.0.0' || !filter_var($clientIP, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            $detectedIP = $this->detectClientIP();
-            
-            if ($detectedIP !== '0.0.0.0') {
-                $clientIP = $detectedIP;
-                $ipSource = 'auto_detected';
-                
-                // Atualizar o IP na transação para rastreabilidade
-                $updateStmt = $db->prepare("UPDATE transactions SET client_ip = ? WHERE id = ?");
-                $updateStmt->execute([$clientIP, $transactionId]);
-                
-                logEvent('mikrotik_fallback', "IP detectado automaticamente: $clientIP para TX: $transactionId");
-            } else {
-                return [
-                    'success' => false,
-                    'message' => "Não foi possível determinar o IP do cliente (nem do formulário, nem automaticamente).",
-                    'client_ip' => $clientIP,
-                    'ip_source' => 'failed'
-                ];
-            }
-        }
-        // ======================================================================
-        
-        // Validar IP final
+        // Validar IP
         if (!filter_var($clientIP, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) || $clientIP === '0.0.0.0') {
             return [
                 'success' => false,
-                'message' => "IP inválido: $clientIP",
-                'client_ip' => $clientIP,
-                'ip_source' => $ipSource
+                'message' => "IP inválido na transação: $clientIP",
+                'client_ip' => $clientIP
             ];
         }
         
@@ -219,10 +91,10 @@ class MikrotikAPI {
         if (!preg_match('/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/', $clientMAC)) {
             // Se MAC for inválido, usa o padrão (MikroTik descobrirá)
             $clientMAC = '00:00:00:00:00:00';
-            logEvent('mikrotik_warning', "MAC inválido na transação $transactionId. Usando padrão para auto-descoberta.");
+            logEvent('mikrotik_warning', "MAC inválido na transação $transactionId. Usando padrão.");
         }
 
-        logEvent('mikrotik_info', "Adicionando bypass. TX: $transactionId | IP: $clientIP ($ipSource) | MAC: $clientMAC");
+        logEvent('mikrotik_info', "Adicionando bypass. Transaction: $transactionId | IP: $clientIP | MAC: $clientMAC");
 
         // 2. Conectar ao MikroTik
         if (!$this->connect()) {
@@ -251,8 +123,7 @@ class MikrotikAPI {
                 'success' => false,
                 'message' => 'Falha ao adicionar IP Binding: ' . $mikrotikResult['message'],
                 'client_ip' => $clientIP,
-                'client_mac' => $clientMAC,
-                'ip_source' => $ipSource
+                'client_mac' => $clientMAC
             ];
         }
 
@@ -271,20 +142,18 @@ class MikrotikAPI {
             return [
                 'success' => false,
                 'message' => 'IP Binding adicionado, mas falha ao recuperar o ID (.id).',
-                'client_ip' => $clientIP,
-                'ip_source' => $ipSource
+                'client_ip' => $clientIP
             ];
         }
         
-        logEvent('mikrotik_success', "Bypass criado. ID: $bypassId | IP: $clientIP ($ipSource)");
+        logEvent('mikrotik_success', "Bypass criado. ID: $bypassId | IP: $clientIP");
         
         return [
             'success' => true,
             'message' => 'Bypass de IP adicionado com sucesso.',
             'bypass_id' => $bypassId,
             'client_ip' => $clientIP,
-            'client_mac' => $clientMAC,
-            'ip_source' => $ipSource
+            'client_mac' => $clientMAC
         ];
     }
     
@@ -322,7 +191,7 @@ class MikrotikAPI {
         
         return [
             'success' => false,
-            'message' => 'Falha ao remover bypass: ' . ($mikrotikResult['message'] ?? 'Erro desconhecido')
+            'message' => 'Falha ao remover bypass: ' . $mikrotikResult['message']
         ];
     }
     

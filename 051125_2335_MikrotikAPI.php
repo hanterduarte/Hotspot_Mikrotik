@@ -1,5 +1,5 @@
 <?php
-// MikrotikAPI.php - VERSÃO FINAL COM FALLBACK CORRIGIDO PARA CLOUDFLARE
+// MikrotikAPI.php - VERSÃO FINAL COM FALLBACK AUTOMÁTICO
 
 require_once 'config.php'; 
 require_once 'routeros_api.class.php';
@@ -51,105 +51,36 @@ class MikrotikAPI {
     }
     
     // ======================================================================
-    // FUNÇÕES DE BYPASS VIA IP BINDINGS (COM FALLBACK OTIMIZADO PARA CLOUDFLARE)
+    // FUNÇÕES DE BYPASS VIA IP BINDINGS (COM FALLBACK AUTOMÁTICO)
     // ======================================================================
 
     /**
-     * Detecta o IP real do cliente via headers HTTP (FALLBACK OTIMIZADO)
-     * PRIORIZA headers do Cloudflare e proxies reversos
+     * Detecta o IP real do cliente via headers HTTP (FALLBACK)
      * @return string IP detectado ou '0.0.0.0' se falhar
      */
     private function detectClientIP(): string {
         $ip_candidates = [];
 
-        // PRIORIDADE 5: REMOTE_ADDR (conexão direta - MENOS CONFIÁVEL com Cloudflare)
-        if (!empty($_SERVER['REMOTE_ADDR'])) {
-            $ip_candidates[] = ['ip' => $_SERVER['REMOTE_ADDR'], 'source' => 'REMOTE_ADDR'];
+        // Verifica headers comuns em ambientes com proxy/hotspot
+        if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
+            $ip_candidates[] = $_SERVER['HTTP_CLIENT_IP'];
         }
-
-        // PRIORIDADE 1: CF-Connecting-IP (Cloudflare - IP REAL do cliente)
-        if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-            $ip_candidates[] = ['ip' => $_SERVER['HTTP_CF_CONNECTING_IP'], 'source' => 'CF-Connecting-IP'];
-        }
-
-        // PRIORIDADE 2: X-Real-IP (Nginx/Proxies)
-        if (!empty($_SERVER['HTTP_X_REAL_IP'])) {
-            $ip_candidates[] = ['ip' => $_SERVER['HTTP_X_REAL_IP'], 'source' => 'X-Real-IP'];
-        }
-
-        // PRIORIDADE 3: X-Forwarded-For (primeiro IP da cadeia)
         if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
             $forwarded_ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-            $ip_candidates[] = ['ip' => trim($forwarded_ips[0]), 'source' => 'X-Forwarded-For'];
+            $ip_candidates[] = trim($forwarded_ips[0]);
+        }
+        if (!empty($_SERVER['REMOTE_ADDR'])) {
+            $ip_candidates[] = $_SERVER['REMOTE_ADDR'];
         }
 
-        // PRIORIDADE 4: Client-IP (alguns proxies)
-        if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
-            $ip_candidates[] = ['ip' => $_SERVER['HTTP_CLIENT_IP'], 'source' => 'Client-IP'];
-        }
-
-        
-
-        // Log de debug dos IPs encontrados
-        if (function_exists('logEvent')) {
-            $debug_info = [];
-            foreach ($ip_candidates as $candidate) {
-                $debug_info[] = "{$candidate['source']}: {$candidate['ip']}";
-            }
-            logEvent('mikrotik_debug', "IPs detectados: " . implode(' | ', $debug_info));
-        }
-
-        // Valida e retorna o primeiro IPv4 PRIVADO válido (rede local)
-        // Prioriza IPs da rede local (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+        // Retorna o primeiro IPv4 válido encontrado
         foreach ($ip_candidates as $candidate) {
-            $ip = $candidate['ip'];
-            
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                // Verifica se é IP privado (rede local)
-                if ($this->isPrivateIP($ip)) {
-                    logEvent('mikrotik_info', "IP privado detectado via {$candidate['source']}: $ip");
-                    return $ip;
-                }
-            }
-        }
-
-        // Se não encontrou IP privado, retorna o primeiro IP público válido
-        foreach ($ip_candidates as $candidate) {
-            $ip = $candidate['ip'];
-            
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                logEvent('mikrotik_warning', "IP público detectado via {$candidate['source']}: $ip (pode não ser da rede local)");
-                return $ip;
+            if (filter_var($candidate, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                return $candidate;
             }
         }
         
         return '0.0.0.0';
-    }
-
-    /**
-     * Verifica se o IP é privado (rede local)
-     * @param string $ip
-     * @return bool
-     */
-    private function isPrivateIP(string $ip): bool {
-        $private_ranges = [
-            ['10.0.0.0', '10.255.255.255'],       // Classe A privada
-            ['172.16.0.0', '172.31.255.255'],     // Classe B privada
-            ['192.168.0.0', '192.168.255.255'],   // Classe C privada
-        ];
-
-        $ip_long = ip2long($ip);
-        
-        foreach ($private_ranges as $range) {
-            $start = ip2long($range[0]);
-            $end = ip2long($range[1]);
-            
-            if ($ip_long >= $start && $ip_long <= $end) {
-                return true;
-            }
-        }
-        
-        return false;
     }
 
     /**

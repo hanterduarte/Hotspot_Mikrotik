@@ -1,22 +1,6 @@
 <?php
 require_once 'config.php';
 
-// 1. CAPTURAR AS VARIÁVEIS DO MIKROTIK PASSADAS VIA URL (CORREÇÃO AQUI)
-$mikrotikLoginUrl = isset($_GET['link-login-only']) ? htmlspecialchars($_GET['link-login-only']) : '';
-$linkOrig = isset($_GET['link-orig']) ? htmlspecialchars($_GET['link-orig']) : '';
-$username = isset($_GET['username']) ? htmlspecialchars($_GET['username']) : '';
-$error = isset($_GET['error']) ? htmlspecialchars($_GET['error']) : '';
-$chapId = isset($_GET['chap-id']) ? htmlspecialchars($_GET['chap-id']) : '';
-$chapChallenge = isset($_GET['chap-challenge']) ? htmlspecialchars($_GET['chap-challenge']) : '';
-
-
-// Função de formatação de dinheiro (assumindo que está em config.php ou em um helper)
-if (!function_exists('formatMoney')) {
-    function formatMoney($amount) {
-        return 'R$ ' . number_format($amount, 2, ',', '.');
-    }
-}
-
 // Buscar planos ativos
 $db = Database::getInstance()->getConnection();
 $stmt = $db->query("SELECT * FROM plans WHERE active = 1 ORDER BY price ASC");
@@ -29,7 +13,6 @@ $plans = $stmt->fetchAll();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WiFi Barato - Escolha seu Plano</title>
     <style>
-        /* --- SEU CSS COMPLETO (MANTIDO INTACTO) --- */
         * {
             margin: 0;
             padding: 0;
@@ -532,26 +515,24 @@ $plans = $stmt->fetchAll();
 </head>
 <body>
     
-    <?php if ($chapId): ?>
-    <form name="sendin" action="<?php echo $mikrotikLoginUrl; ?>" method="post" style="display:none">
+    $(if chap-id)
+    <form name="sendin" action="$(link-login-only)" method="post" style="display:none">
         <input type="hidden" name="username" />
         <input type="hidden" name="password" />
-        <input type="hidden" name="dst" value="<?php echo $linkOrig; ?>" />
+        <input type="hidden" name="dst" value="$(link-orig)" />
         <input type="hidden" name="popup" value="true" />
     </form>
 
-    <script src="/md5.js"></script>
  
     <script>
         function doLogin() {
             document.sendin.username.value = document.login.username.value;
-            // Usa as variáveis PHP no JavaScript para o processo de criptografia
-            document.sendin.password.value = hexMD5('<?php echo $chapId; ?>' + document.login.password.value + '<?php echo $chapChallenge; ?>');
+            document.sendin.password.value = hexMD5('$(chap-id)' + document.login.password.value + '$(chap-challenge)');
             document.sendin.submit();
             return false;
         }
     </script>
-    <?php endif; ?>
+    $(endif)
     <div class="container">
         <div class="header">
             <img src="img/wifi-barato-logo.png" alt="WiFi Barato" class="logo"> 
@@ -567,19 +548,19 @@ $plans = $stmt->fetchAll();
             <h2>Acesse a Internet</h2>
             <p>Digite seu usuário e senha para conectar</p>
 
-            <?php if ($error): ?>
-            <div class="info-message alert"><?php echo $error; ?></div>
-            <?php endif; ?>
+            $(if error)
+            <div class="info-message alert">$(error)</div>
+            $(endif)
 
-            <form name="login" action="<?php echo $mikrotikLoginUrl; ?>" method="post" <?php if ($chapId): ?> onSubmit="return doLogin()" <?php endif; ?>>
-                <input type="hidden" name="dst" value="<?php echo $linkOrig; ?>" />
+            <form name="login" action="$(link-login-only)" method="post" $(if chap-id) onSubmit="return doLogin()" $(endif)>
+                <input type="hidden" name="dst" value="$(link-orig)" />
                 <input type="hidden" name="popup" value="true" />
                 
                 <div class="form-group">
                     <svg class="ico" fill="#666" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                         <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
                     </svg>
-                    <input name="username" type="text" value="<?php echo $username; ?>" placeholder="Usuário" required autofocus />
+                    <input name="username" type="text" value="$(username)" placeholder="Usuário" required autofocus />
                 </div>
 
                 <div class="form-group">
@@ -591,7 +572,7 @@ $plans = $stmt->fetchAll();
 
                 <button type="submit" class="submit-btn">Conectar Agora</button>
             </form>
-            </div>
+        </div>
         
         <div id="plansSection" class="plans-section">
             <div class="plans-title">
@@ -723,7 +704,6 @@ $plans = $stmt->fetchAll();
         document.addEventListener('DOMContentLoaded', () => {
             // Captura os parâmetros IP e MAC da URL
             const urlParams = new URLSearchParams(window.location.search);
-            // Capturando IP e MAC
             const ip = urlParams.get('ip') || '0.0.0.0'; 
             const mac = urlParams.get('mac') || '00:00:00:00:00:00'; 
 
@@ -763,8 +743,7 @@ $plans = $stmt->fetchAll();
 
             // Atualizar info do plano
             const plan = plans.find(p => p.id == planId);
-            // Usa a função formatMoney do PHP para formatar o preço
-            const formattedPrice = 'R$ ' + parseFloat(plan.price).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}); 
+            const formattedPrice = plan.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}); 
             
             document.getElementById('selectedPlanInfo').innerHTML = `
                 <h4>Plano Selecionado:</h4>
