@@ -23,13 +23,15 @@ foreach ($required as $field) {
 
 $planId = intval($input['plan_id']);
 $name = sanitizeInput($input['name']);
+
+// CORREÇÃO AQUI: SANITIZAR O TELEFONE
 $email = sanitizeInput($input['email']);
-$phone = sanitizeInput($input['phone']);
+$phone = preg_replace('/[^0-9]/', '', $input['phone']); // <-- APLICANDO REGEX PARA MANTER SÓ NÚMEROS
 $cpf = preg_replace('/[^0-9]/', '', $input['cpf']);
 
 // CAPTURAR IP e MAC do formulário
 $clientIp = !empty($input['client_ip']) ? sanitizeInput($input['client_ip']) : '0.0.0.0';
-$clientMac = !empty($input['client_mac']) ? sanitizeInput($input['client_mac']) : '00:00:00:00:00:00';
+// ... (restante da captura de IP/MAC)
 
 // Validar formato do IP (IPv4)
 if (!filter_var($clientIp, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
@@ -62,7 +64,7 @@ try {
     }
     
     // 3. Criar ou buscar cliente
-    $customerData = ['name' => $name, 'email' => $email, 'phone' => $phone, 'cpf' => $cpf];
+    $customerData = ['name' => $name, 'email' => $email, 'phone' => $phone, 'cpf' => $cpf]; 
     $customerId = createOrGetCustomer($db, $customerData); 
     
     // 4. Criar a transação inicial COM IP e MAC já preenchidos
@@ -91,34 +93,8 @@ try {
     logEvent('transaction_created', "Transação ID $transactionId criada. IP: $clientIp | MAC: $clientMac");
     
     // ======================================================================
-    // MIKROTIK: 5. Adicionar Bypass lendo IP/MAC da tabela transactions
+    // 5. Gerar o link de checkout na InfinitePay (PRIMEIRO PASSO)
     // ======================================================================
-    $mt = new MikrotikAPI();
-    
-    // addClientBypass agora recebe apenas o ID da transação
-    $bypassResult = $mt->addClientBypass($transactionId); 
-    
-    if (!$bypassResult['success']) {
-        $db->rollBack();
-        logEvent('mikrotik_error', "Falha ao adicionar IP Bypass. Transaction ID: $transactionId. Erro: " . $bypassResult['message']);
-        jsonResponse(false, 'Erro ao preparar o acesso para pagamento: ' . $bypassResult['message']);
-        return; 
-    }
-
-    $mikrotikBypassId = $bypassResult['bypass_id'];
-    
-    // Atualizar transação APENAS com o ID do bypass (IP e MAC já estão salvos)
-    $stmt = $db->prepare("
-        UPDATE transactions 
-        SET mikrotik_bypass_id = ?
-        WHERE id = ?
-    ");
-    $stmt->execute([$mikrotikBypassId, $transactionId]);
-    
-    logEvent('mikrotik_info', "Bypass adicionado. ID: $mikrotikBypassId | Transaction: $transactionId");
-    // ======================================================================
-
-    // 6. Gerar o link de checkout na InfinitePay
     logEvent('DEBUG_CHECKOUT_START', "Iniciando API InfinitePay. Transaction ID: $transactionId");
     
     $ip = new InfinityPay();
@@ -127,10 +103,40 @@ try {
     if ($result['success']) {
         $redirectUrl = $result['url'];
 
-        // 7. Atualizar transação com a referência externa
+        // 6. Atualizar transação com a referência externa 
         $stmt = $db->prepare("UPDATE transactions SET infinitypay_order_id = ? WHERE id = ?");
         $stmt->execute([strval($transactionId), $transactionId]);
         
+        // ======================================================================
+        // MIKROTIK: 7. Adicionar Bypass SOMENTE APÓS O SUCESSO DO CHECKOUT
+        // O MikrotikAPI agora usa a Address List para o bypass
+        // ======================================================================
+        $mt = new MikrotikAPI();
+        
+        // addClientBypass agora usa o ID da transação para buscar o IP no DB
+        $bypassResult = $mt->addClientBypass($transactionId); 
+        
+        if (!$bypassResult['success']) {
+            // Se falhar, faz rollback porque a transação na InfinitePay não poderá ser paga (sem internet)
+            $db->rollBack(); 
+            logEvent('mikrotik_error', "Falha ao adicionar IP Bypass (Address List). TX: $transactionId. Erro: " . $bypassResult['message']);
+            jsonResponse(false, 'Erro ao preparar o acesso para pagamento: ' . $bypassResult['message']);
+            return; 
+        }
+
+        $mikrotikBypassId = $bypassResult['bypass_id'];
+        
+        // Atualizar transação com o ID do bypass (aqui será o IP do cliente)
+        $stmt = $db->prepare("
+            UPDATE transactions 
+            SET mikrotik_bypass_id = ?
+            WHERE id = ?
+        ");
+        $stmt->execute([$mikrotikBypassId, $transactionId]);
+        
+        logEvent('mikrotik_info', "Bypass (Address List) adicionado. ID: $mikrotikBypassId | Transaction: $transactionId");
+        // ======================================================================
+
         $db->commit();
         
         logEvent('payment_created', "Checkout criado. Transaction: $transactionId | Bypass: $mikrotikBypassId"); 
