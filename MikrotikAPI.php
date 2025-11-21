@@ -1,5 +1,5 @@
 <?php
-// MikrotikAPI.php - VERSÃO FINAL COM BYPASS VIA ADDRESS LIST
+// MikrotikAPI.php - VERSÃO FINAL COM LÓGICA DE PROVISIONAMENTO
 
 require_once 'config.php'; 
 require_once 'routeros_api.class.php';
@@ -37,110 +37,71 @@ class MikrotikAPI {
             return false;
         }
 
+        if ($this->connected) {
+            return true;
+        }
+        
         if ($this->api->connect($this->host, $this->user, $this->pass)) {
             $this->connected = true;
             return true;
         } else {
-            logEvent('mikrotik_error', "Falha ao conectar na API do MikroTik: {$this->host}:{$this->port}");
+            $this->configError = "Falha ao conectar ao MikroTik em {$this->host}:{$this->port}.";
             return false;
         }
     }
 
     // ======================================================================
-    // NOVA LÓGICA DE BYPASS: Address List (PAGAMENTO_PENDENTE)
+    // PROVISIONAMENTO DE USUÁRIO HOTSPOT
     // ======================================================================
-    public function addClientBypass(int $transactionId): array {
-        // 1. Conectar e obter o IP da transação no banco de dados
-        if (!$this->connect()) {
-            return ['success' => false, 'message' => 'Falha na conexão com o MikroTik.'];
-        }
-
-        $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT client_ip FROM transactions WHERE id = ?");
-        $stmt->execute([$transactionId]);
-        $transaction = $stmt->fetch();
-
-        if (!$transaction || $transaction['client_ip'] === '0.0.0.0') {
-            return ['success' => false, 'message' => 'IP do cliente não encontrado para a transação.'];
-        }
-        
-        $clientIp = $transaction['client_ip'];
-        $addressList = 'PAGAMENTO_PENDENTE';
-        $timeout = '00:02:00'; // 2 minutos conforme solicitado
-        $comment = "TX: $transactionId - Checkout InfinitePay";
-
-        // 2. Adicionar IP à Address List (Acesso liberado via Firewall)
-        $response = $this->api->comm('/ip/firewall/address-list/add', [
-            'list' => $addressList,
-            'address' => $clientIp,
-            'timeout' => $timeout,
-            'comment' => $comment
-        ]);
-
-        if (isset($response['!trap'])) {
-            $error = $response['!trap']['message'] ?? 'Erro RouterOS ao adicionar à Address List.';
-            logEvent('mikrotik_error', "Falha ao adicionar Address List. IP: $clientIp. Erro: " . $error);
-            return ['success' => false, 'message' => $error];
-        }
-        
-        // Retorna o ID da Address List (ou o IP como fallback)
-        $bypassId = $response[0]['.id'] ?? $clientIp; 
-
-        return [
-            'success' => true,
-            'message' => "Bypass (Address List) adicionado para $clientIp.",
-            'bypass_id' => $bypassId 
-        ];
-    }
-    
-    public function removeClientBypass(int $transactionId): array {
-        if (!$this->connect()) {
-            return ['success' => false, 'message' => 'Falha na conexão com o MikroTik.'];
-        }
-        
-        $addressList = 'PAGAMENTO_PENDENTE';
-        $commentPattern = "TX: $transactionId - Checkout InfinitePay"; // Usar o mesmo padrão de comentário
-
-        // 1. Procurar o registro na Address List pelo comentário
-        $find = $this->api->comm('/ip/firewall/address-list/find', [
-            'comment' => $commentPattern
-        ]);
-        
-        if (empty($find)) {
-            logEvent('mikrotik_info', "Registro Address List não encontrado para remoção. TX: $transactionId");
-            return ['success' => true, 'message' => 'Endereço não encontrado na lista para remoção.'];
-        }
-        
-        $bypassId = $find[0]['.id'];
-        
-        // 2. Remover o registro
-        $response = $this->api->comm('/ip/firewall/address-list/remove', [
-            '.id' => $bypassId
-        ]);
-
-        if (isset($response['!trap'])) {
-            $error = $response['!trap']['message'] ?? 'Erro RouterOS ao remover Address List.';
-            logEvent('mikrotik_error', "Falha ao remover Address List. ID: $bypassId. Erro: " . $error);
-            return ['success' => false, 'message' => $error];
-        }
-        
-        return ['success' => true, 'message' => "Endereço removido da lista $addressList."];
-    }
-
-    // ======================================================================
-    // CÓDIGO ANTIGO DE PROVISIONAMENTO (MANTIDO)
-    // ======================================================================
-
     public function provisionHotspotUser(int $planId, string $clientIp): array {
-        // ... (Mantenha sua lógica de provisionamento de usuário aqui) ...
-        // Este código será chamado no Webhook APÓS o pagamento ser APROVADO
-        // ...
+        // 1. Conecta ao Mikrotik (Se ainda não estiver conectado)
+        if (!$this->connect()) {
+            return ['success' => false, 'message' => $this->getError() ?? 'Falha na conexão ao MikroTik.'];
+        }
+
+        // 2. Busca detalhes do plano no DB
+        $db = Database::getInstance()->getConnection();
+        // CORREÇÃO: Usando 'mikrotik_profile' e 'duration_seconds' (finalmente resolvendo o erro)
+        $stmt_plan = $db->prepare("SELECT mikrotik_profile, duration_seconds FROM plans WHERE id = ?"); 
+        $stmt_plan->execute([$planId]);
+        $plan = $stmt_plan->fetch();
+
+        if (!$plan) {
+            logEvent('mikrotik_api_error', "Plano ID $planId não encontrado no DB.");
+            return ['success' => false, 'message' => 'Plano não encontrado no sistema.'];
+        }
+
+        $profile = $plan['mikrotik_profile'] ?? 'default'; 
+        $durationSeconds = intval($plan['duration_seconds']);
+        
+        // Define o limite de tempo no formato RouterOS (ex: '3600s', ou '0' para ilimitado)
+        $uptimeLimit = $durationSeconds > 0 ? $durationSeconds . 's' : ''; 
+
+        // 3. Gerar Username e Password
+        $username = 'u' . substr(md5(uniqid(mt_rand(), true)), 0, 8);
+        $password = substr(md5(uniqid(mt_rand(), true)), 0, 6);
+
+        // 4. Adicionar Usuário Hotspot no Mikrotik
+        $response = $this->api->comm('/ip/hotspot/user/add', [
+            'name' => $username,
+            'password' => $password,
+            'profile' => $profile,
+            'limit-uptime' => $uptimeLimit, 
+            'comment' => "Plano ID: $planId - Cliente IP: $clientIp" // IP pode ser vazio
+        ]);
+
+        if (isset($response['!trap'])) {
+            $error = $response['!trap']['message'] ?? 'Erro RouterOS ao adicionar usuário Hotspot.';
+            logEvent('mikrotik_error', "Falha ao adicionar usuário. Username: $username. Erro: " . $error);
+            return ['success' => false, 'message' => $error];
+        }
+        
         return [
             'success' => true,
             'message' => 'Usuário provisionado com sucesso.',
-            'username' => 'exemplo_user',
-            'password' => 'exemplo_pass',
-            'mikrotik_profile' => 'exemplo_profile'
+            'username' => $username,
+            'password' => $password,
+            'mikrotik_profile' => $profile // Retorna o perfil usado para persistência no DB
         ];
     }
     
@@ -159,7 +120,7 @@ class MikrotikAPI {
     
     public function __destruct() {
         if ($this->connected && $this->api !== null) {
-            $this->api->disconnect();
+            // $this->api->disconnect(); // Descomente se sua API RouterOS exigir
         }
     }
 }

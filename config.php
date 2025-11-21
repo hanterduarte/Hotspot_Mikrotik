@@ -86,15 +86,23 @@ function saveSetting($key, $value) {
 // Função para registrar logs
 function logEvent($type, $message, $related_id = null) {
     try {
+        // Normalizar message: se for array/object, transformar em JSON
+        if (is_array($message) || is_object($message)) {
+            $messageToStore = json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } else {
+            $messageToStore = (string)$message;
+        }
+
         $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare("INSERT INTO logs (log_type, log_message, related_id) VALUES (?, ?, ?)");
-        return $stmt->execute([$type, $message, $related_id]);
+        $stmt = $db->prepare("INSERT INTO logs (log_type, log_message, related_id, created_at) VALUES (?, ?, ?, NOW())");
+        return $stmt->execute([$type, $messageToStore, $related_id]);
     } catch(Exception $e) {
-        error_log("Erro ao registrar log: " . $e->getMessage());
+        // Registrar no error_log do PHP se falhar para não quebrar fluxo
+        error_log("Erro ao registrar log (logEvent): " . $e->getMessage());
+        error_log("Original log was: type={$type} message=" . (is_scalar($message) ? $message : json_encode($message)));
         return false;
     }
 }
-
 // Função para criar ou obter um cliente
 function createOrGetCustomer($db, $customerData) {
     // 1. Tenta encontrar o cliente pelo email

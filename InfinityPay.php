@@ -87,6 +87,23 @@ class InfinityPay {
             "items" => $items
         ];
 
+        // LOG do payload exato enviado (útil para debug)
+        logEvent('DEBUG_INFINITYPAY_PAYLOAD', $data, $transactionId);
+
+        // --- Aqui: atualizar transactions.payload_response = 'Payload Criado' ---
+        try {
+            $db = Database::getInstance()->getConnection();
+            // Verifica se a coluna existe/é utilizável; se não, o catch cuidará do erro
+            $stmt = $db->prepare("UPDATE transactions SET payload_response = ? WHERE id = ?");
+            $stmt->execute(['Payload Criado', $transactionId]);
+            logEvent('payload_debug', "Payload Criado gravado em transactions.payload_response. TX: $transactionId", $transactionId);
+        } catch (Exception $e) {
+            // Apenas logamos; não interrompemos o fluxo (não é crítico)
+            logEvent('payload_error', "Falha ao atualizar payload_response: " . $e->getMessage(), $transactionId);
+        }
+
+        // Envia o payload para a API (faz a requisição)
+
         return $this->makeRequest($this->apiUrl, $data);
     }
 }
