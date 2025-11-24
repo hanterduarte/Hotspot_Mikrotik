@@ -1,5 +1,5 @@
 <?php
-// process_payment_infinity.php - Processa a requisição, salva IP/MAC/Variáveis Mikrotik, gera checkout
+// process_payment_infinity.php - Processa a requisição, salva IP/MAC, gera checkout
 // O bypass no Mikrotik foi COMENTADO e IP/MAC não são mais obrigatórios para prosseguir.
 
 require_once 'config.php';
@@ -14,24 +14,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $input = json_decode(file_get_contents('php://input'), true);
 
 // 1. Validar e sanitizar dados
-// Campos de cliente obrigatórios
-$requiredClient = ['plan_id', 'name', 'email', 'phone', 'cpf'];
-foreach ($requiredClient as $field) {
+$required = ['plan_id', 'name', 'email', 'phone', 'cpf'];
+foreach ($required as $field) {
     if (!isset($input[$field]) || trim($input[$field]) === '') {
         jsonResponse(false, "Campo obrigatório: $field");
     }
 }
-
-// 🟢 Coletar variáveis do Mikrotik, mesmo que possam ser vazias
-// (index.php deve garantir que elas estão no JSON, mesmo que como strings vazias)
-$requiredMikrotik = ['link_login_only', 'link_orig', 'chap_id', 'chap_challenge'];
-foreach ($requiredMikrotik as $field) {
-    if (!isset($input[$field])) {
-        // Define como string vazia se ausente, para evitar erro de índice no PHP
-        $input[$field] = ''; 
-    }
-}
-
 
 $planId = intval($input['plan_id']);
 $name = sanitizeInput($input['name']);
@@ -39,7 +27,7 @@ $email = sanitizeInput($input['email']);
 $phone = preg_replace('/[^0-9]/', '', (string)$input['phone']);
 $cpf = preg_replace('/[^0-9]/', '', (string)$input['cpf']);
 
-// --- MUDANÇA AQUI: Coleta de IP/MAC e Validação (EXISTENTE) ---
+// --- MUDANÇA AQUI: Coleta de IP/MAC e Validação ---
 // O IP e o MAC agora podem ser strings vazias se a coleta falhar.
 $clientIp = !empty($input['client_ip']) ? sanitizeInput($input['client_ip']) : ''; // Default: '' (string vazia)
 $clientMac = !empty($input['client_mac']) ? sanitizeInput($input['client_mac']) : ''; // Default: '' (string vazia)
@@ -53,13 +41,8 @@ if (!empty($clientMac) && !preg_match('/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})
 }
 // --------------------------------------------------
 
-// 🟢 NOVAS VARIÁVEIS DO MIKROTIK
-$linkLoginOnly = sanitizeInput($input['link_login_only']);
-$linkOrig = sanitizeInput($input['link_orig']);
-$chapId = sanitizeInput($input['chap_id']);
-$chapChallenge = sanitizeInput($input['chap_challenge']);
 
-logEvent('payment_debug', "IP: $clientIp | MAC: $clientMac | Telefone: $phone | Mikrotik Link: $linkLoginOnly");
+logEvent('payment_debug', "IP: $clientIp | MAC: $clientMac | Telefone: $phone");
 
 // valida básico
 if (!validateEmail($email) || !validateCPF($cpf)) {
@@ -92,26 +75,19 @@ try {
     $customerId = createOrGetCustomer($db, $customerData);
 
     // criar transação pending
-    // 🟢 ATUALIZAÇÃO: Incluindo as colunas do Mikrotik
     $stmt = $db->prepare("
         INSERT INTO transactions (
             customer_id, plan_id, amount, payment_method, payment_status,
-            client_ip, client_mac, 
-            mikrotik_link_login_only, mikrotik_link_orig, mikrotik_chap_id, mikrotik_chap_challenge, 
-            created_at
-        ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, NOW())
+            client_ip, client_mac, created_at
+        ) VALUES (?, ?, ?, ?, 'pending', ?, ?, NOW())
     ");
     $stmt->execute([
         $customerId,
         $planId,
         $planPrice,
         'infinitepay_checkout',
-        $clientIp, 
-        $clientMac,
-        $linkLoginOnly,     // 🟢 NOVO: Variável do Mikrotik
-        $linkOrig,          // 🟢 NOVO: Variável do Mikrotik
-        $chapId,            // 🟢 NOVO: Variável do Mikrotik
-        $chapChallenge      // 🟢 NOVO: Variável do Mikrotik
+        $clientIp, // Grava IP (pode ser vazio)
+        $clientMac // Grava MAC (pode ser vazio)
     ]);
     $transactionId = $db->lastInsertId();
 

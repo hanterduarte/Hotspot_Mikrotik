@@ -1,16 +1,44 @@
 <?php
 require_once 'config.php';
 
-// Captura variáveis do Mikrotik
-$linkLogin = isset($_GET['link-login-only']) ? $_GET['link-login-only'] : '';
-$linkOrig = isset($_GET['link-orig']) ? $_GET['link-orig'] : '';
-$chapId = isset($_GET['chap-id']) ? $_GET['chap-id'] : '';
-$chapChallenge = isset($_GET['chap-challenge']) ? $_GET['chap-challenge'] : '';
-$username = isset($_GET['username']) ? $_GET['username'] : '';
-$error = isset($_GET['error']) ? $_GET['error'] : '';
-$clientIp = isset($_GET['ip']) ? $_GET['ip'] : '';
-$clientMac = isset($_GET['mac']) ? $_GET['mac'] : '';
+// Função alternativa para forçar a conversão de escapes octais (\xxx) para binário.
+if (!function_exists('octal_unescape')) {
+    function octal_unescape($data) {
+        // Encontra todas as ocorrências de \xxx (três dígitos octais)
+        return preg_replace_callback('/\\\\([0-7]{3})/', function($matches) {
+            // Converte a string octal (ex: '273') para seu byte binário
+            return chr(octdec($matches[1]));
+        }, $data);
+    }
+}
 
+
+// Captura variáveis do Mikrotik vindas por GET (Mikrotik usam hífen nos nomes)
+$linkLoginHyphen  = $_GET['link-login-only'] ?? '';
+$linkOrigHyphen   = $_GET['link-orig']       ?? '';
+$chapIdHyphen     = isset($_GET['chap-id']) ? rawurldecode($_GET['chap-id']) : '';
+$chapChalHyphen   = isset($_GET['chap-challenge']) ? rawurldecode($_GET['chap-challenge']) : '';
+$usernameMt       = $_GET['username']        ?? ''; // (não vai para transactions)
+$errorMt          = $_GET['error']           ?? '';
+$clientIpMt       = $_GET['ip']              ?? '';
+$clientMacMt      = $_GET['mac']             ?? '';
+
+// octais/hexadecimais (e.g., '\273') em dados binários reais.
+$chapIdHyphen   = octal_unescape($chapIdHyphen); 
+$chapChalHyphen = octal_unescape($chapChalHyphen);
+
+// Se preferir já normalizar em PHP (underscore):
+$linkLoginUnderscore = $linkLoginHyphen;
+$linkOrigUnderscore  = $linkOrigHyphen;
+$chapIdUnderscore    = base64_encode($chapIdHyphen); 
+$chapChalUnderscore  = base64_encode($chapChalHyphen);
+$clientIp            = $clientIpMt;
+$clientMac           = $clientMacMt;
+
+$error    = $errorMt;
+$linkLogin = $linkLoginUnderscore;
+$username = $usernameMt;
+$linkOrig = $linkOrigUnderscore;
 
 // Função de formatação de dinheiro
 if (!function_exists('formatMoney')) {
@@ -563,7 +591,7 @@ $plans = $stmt->fetchAll();
                             <div class="plan-duration"><?php echo htmlspecialchars($plan['name']); ?></div>
                             <div class="plan-price"><?php echo formatMoney($plan['price']); ?></div>
                             <ul class="plan-features">
-                                <li>✅ Acesso Ilimitado por <?php echo htmlspecialchars($plan['duration_value']); ?> <?php echo htmlspecialchars($plan['duration_unit']); ?></li>
+                                <li>✅ Acesso Ilimitado </li>
                                 <li>✅ Velocidade Máxima Disponível</li>
                                 <li>✅ Sem Franquia de Dados</li>
                                 <li>✅ Suporte 24h (via WhatsApp)</li>
@@ -635,12 +663,8 @@ $plans = $stmt->fetchAll();
                 
                 <form id="customerForm">
                     <input type="hidden" name="plan_id" id="plan_id_input">
-                    <input type="hidden" name="link_login_only" value="<?php echo htmlspecialchars($linkLogin); ?>">
-                    <input type="hidden" name="link_orig" value="<?php echo htmlspecialchars($linkOrig); ?>">
-                    <input type="hidden" name="chap_id" value="<?php echo htmlspecialchars($chapId); ?>">
-                    <input type="hidden" name="chap_challenge" value="<?php echo htmlspecialchars($chapChallenge); ?>">
-                    <input type="hidden" name="client_ip" id="client_ip" value="<?php echo htmlspecialchars($clientIp); ?>">
-                    <input type="hidden" name="client_mac" id="client_mac" value="<?php echo htmlspecialchars($clientMac); ?>">
+                    <input type="hidden" id="clientIp" name="client_ip">
+                    <input type="hidden" id="clientMac" name="client_mac">
                     
                     <div class="form-group">
                         <input type="text" name="name" id="name" placeholder="Nome Completo" required>
@@ -713,7 +737,20 @@ $plans = $stmt->fetchAll();
             loadingScreen.style.display = 'flex';
 
             const formData = new FormData(customerForm);
+            // Converte os dados do formulário em um objeto JavaScript
             const data = Object.fromEntries(formData.entries());
+
+            // ==========================================================
+            // AJUSTE NECESSÁRIO AQUI: Adicionar as variáveis do Mikrotik
+            // Elas foram capturadas pelo PHP no início do arquivo.
+            // ==========================================================
+            data.link_login_only = "<?= htmlspecialchars($linkLoginUnderscore) ?>";
+            data.link_orig       = "<?= htmlspecialchars($linkOrigUnderscore) ?>";
+            data.chap_id         = "<?= htmlspecialchars($chapIdUnderscore) ?>";
+            data.chap_challenge  = "<?= htmlspecialchars($chapChalUnderscore) ?>";
+            data.client_ip       = "<?= htmlspecialchars($clientIp) ?>";
+            data.client_mac      = "<?= htmlspecialchars($clientMac) ?>";
+            // ==========================================================
 
             try {
                 const response = await fetch('process_payment_infinity.php', {

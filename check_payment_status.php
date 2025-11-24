@@ -37,6 +37,9 @@ try {
     // 2. Verifica se o pagamento foi aprovado E se as credenciais já foram criadas
     // [CORREÇÃO AQUI]: Adicionando 'success' como status de aprovação válido
     $isApproved = ($status === 'approved' || $status === 'paid' || $status === 'success'); 
+
+    // 🟢 AJUSTE: Garante que o username é uma string não vazia.
+    $credentialsExist = $result['username'] !== null && $result['username'] !== '';
     
     if ($isApproved && !empty($result['username'])) {
         
@@ -51,6 +54,7 @@ try {
         ]);
         
     } elseif ($isApproved) {
+
         
         // Pagamento aprovado, mas o Webhook ainda está trabalhando (ou falhou na criação do usuário)
         jsonResponse(true, 'Pagamento Aprovado. Aguardando credenciais.', [

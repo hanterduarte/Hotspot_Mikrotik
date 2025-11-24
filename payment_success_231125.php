@@ -16,14 +16,13 @@ $credentials = null;
 $transactionStatus = null;
 $planName = "Seu Plano";
 $expiresAt = null;
-$customerEmail = 'verifique seu email'; // Valor padrão
 
 if ($externalReference) {
     // Tenta obter o usuário criado pelo Webhook
     try {
         $db = Database::getInstance()->getConnection();
         
-        // Consulta que busca credenciais, status, variáveis do Mikrotik E o email do cliente (JOIN customers)
+        // Consulta que busca credenciais, status e as variáveis do Mikrotik da tabela transactions
         $stmt = $db->prepare("
             SELECT 
                 hu.username, 
@@ -34,12 +33,10 @@ if ($externalReference) {
                 t.mikrotik_link_login_only, 
                 t.mikrotik_link_orig,       
                 t.mikrotik_chap_id,         
-                t.mikrotik_chap_challenge,
-                c.email as customer_email   /* 🟢 NOVO: Email do Cliente */
+                t.mikrotik_chap_challenge   
             FROM transactions t
             LEFT JOIN hotspot_users hu ON t.id = hu.transaction_id
             LEFT JOIN plans p ON t.plan_id = p.id
-            LEFT JOIN customers c ON t.customer_id = c.id /* 🟢 NOVO: JOIN com a tabela customers */
             WHERE t.id = ?
             ORDER BY hu.created_at DESC
             LIMIT 1
@@ -53,9 +50,6 @@ if ($externalReference) {
             // Corrige o nome do plano se o plan_id estiver correto no DB
             $planName = $result['plan_name'] ?? $planName; 
             $expiresAt = $result['expires_at']; 
-            
-            // ATRIBUIÇÃO DO EMAIL
-            $customerEmail = $result['customer_email'] ?? $customerEmail;
             
             // ATRIBUIÇÃO DAS VARIÁVEIS DO MIKROTIK DO BANCO DE DADOS
             $linkLoginOnly = $result['mikrotik_link_login_only'] ?? '';
@@ -279,7 +273,7 @@ if ($externalReference) {
                 </form>
             </div>
             <?php else: ?>
-            <p style="margin-top: 20px; font-size: 0.9em; color: #555;">**Nota:** Você deve retornar para a tela de login principal e utilizar suas credenciais de acesso no campo de Usuáario e Senha.</p>
+            <p style="margin-top: 20px; font-size: 0.9em; color: #555;">**Nota:** Não foi possível encontrar o link de login do Hotspot no banco de dados. Você deve retornar para a tela de login principal.</p>
             <?php endif; ?>
             
             <div class="secondary-options">
@@ -301,12 +295,8 @@ if ($externalReference) {
     </div>
 
     <script>
-        // 🟢 AJUSTE: Aumentando maxChecks para 50 (50 verificações * 3 segundos = 150 segundos)
-        const maxChecks = 50;
+        const maxChecks = 20; 
         const transactionId = '<?php echo $externalReference; ?>';
-        // 🟢 NOVO: Captura o email para a mensagem de fallback
-        const customerEmail = '<?php echo htmlspecialchars($customerEmail); ?>';
-        const container = document.querySelector('.container'); // Referência ao container para alteração
 
         <?php if (!$credentials && $externalReference): ?>
         let checkCount = 0;
@@ -314,32 +304,12 @@ if ($externalReference) {
         const checkInterval = setInterval(async () => {
             checkCount++;
             
-            // 🟢 TRATAMENTO DE TEMPO LIMITE
             if (checkCount > maxChecks) {
                 clearInterval(checkInterval);
-                console.error('Tempo limite de verificação excedido (90 segundos).');
-                
-                
-                // 1. Altera o conteúdo do container para a mensagem de fallback por email
-                container.innerHTML = `
-                    <div class="icon-success" style="color: #ff9800;">⚠️</div>
-                    <h1 style="color: #ff9800;">Acesso em Processamento</h1>
-                    <p style="text-align: center; margin-top: 15px;">
-                        O pagamento foi confirmado, mas a criação de usuário no Mikrotik pode estar demorando.
-                        <br><br>
-                        <strong>Suas credenciais foram enviadas para o email cadastrado: ${customerEmail}.</strong>
-                        <br>
-                        Por favor, verifique sua caixa de entrada e spam.
-                    </p>
-                    <div class="secondary-options">
-                        <p class="secondary-info">
-                            Se preferir, clique abaixo para tentar logar na tela principal:
-                        </p>
-                        <a href="index.php" class="redirect-button">Voltar para a Tela Principal de Login</a>
-                    </div>
-                `;
-                
-                return; // Encerra a função após exibir o fallback
+                console.error('Tempo limite de verificação excedido.');
+                document.querySelector('.container h1').textContent = 'Tempo Excedido';
+                document.querySelector('.container p').textContent = 'O sistema demorou a responder. Tente recarregar ou contate o suporte.';
+                return;
             }
 
             try {
@@ -355,7 +325,7 @@ if ($externalReference) {
             } catch (error) {
                 console.error('Erro ao verificar:', error);
             }
-        }, 3000); // Verifica a cada 3 segundos
+        }, 3000); 
         <?php endif; ?>
     </script>
 </body>

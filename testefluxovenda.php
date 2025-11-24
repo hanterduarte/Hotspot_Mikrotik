@@ -15,476 +15,465 @@ $fictitiousPayload = $_SESSION['fictitious_payload'] ?? null;
 // Novas variáveis de DEBUG para a API do Mikrotik
 $mikrotikCallParams = $_SESSION['mikrotik_call_params'] ?? null;
 $mikrotikCallResult = $_SESSION['mikrotik_call_result'] ?? null;
+$transacaoFinal = $_SESSION['transacao_final'] ?? []; // Adicionado para buscar dados finais
+
+// ==========================================================================
+// NOVO: Definição das Variáveis Fictícias do Mikrotik para a Simulação
+// ==========================================================================
+$mikrotikSimData = [
+    'link-login-only' => 'http://hotspot.simulado.lan/login',  // URL de login que o Mikrotik usa
+    'link-orig'       => 'http://www.google.com/test-redirect',// Destino original
+    'chap-id'         => 'TESTE12345CHAPID',                   // ID de autenticação
+    'chap-challenge'  => 'TESTE67890CHALLENGE',                // Challenge de autenticação
+    'client_ip'       => '192.168.10.254',                     // IP do cliente
+    'client_mac'      => '00:1A:2B:CC:DD:EE',                  // MAC do cliente
+];
+// ==========================================================================
+
+// --------------------------------------------------------------------------
+// FUNÇÃO SANITIZE (Omissa aqui, assumindo que está em config.php ou definida)
+// Se 'sanitizeInput' não estiver definida, adicione-a aqui:
+/*
+function sanitizeInput($data) {
+    return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
+}
+*/
+// --------------------------------------------------------------------------
 
 // --------------------------------------------------------------------------
 // BUSCA DE PLANOS (Executada em todas as etapas)
+// Adicionamos 'duration_seconds' na busca para o debug
 // --------------------------------------------------------------------------
-$stmt_plan = $db->query("SELECT id, name, price, description, mikrotik_profile FROM plans WHERE active = 1 ORDER BY price ASC");
+$stmt_plan = $db->query("SELECT id, name, price, description, mikrotik_profile, duration_seconds FROM plans WHERE active = 1 ORDER BY price ASC");
 $allPlans = $stmt_plan->fetchAll();
 
 if (empty($allPlans)) {
     die("Erro: Nenhum plano ativo encontrado na tabela 'plans'. Por favor, crie um plano.");
 }
 
-// Se um plano foi selecionado na sessão, encontre os dados completos dele
+// Se um plano foi selecionado, garante que o $selectedPlan tenha todos os dados
 if ($selectedPlan) {
-    $foundPlan = array_filter($allPlans, function($p) use ($selectedPlan) {
-        // Correção para garantir a comparação entre tipos (string/int)
-        return (int)$p['id'] === (int)$selectedPlan['id']; 
-    });
-    $_SESSION['selected_plan'] = reset($foundPlan) ? reset($foundPlan) : null;
-    $selectedPlan = $_SESSION['selected_plan'];
+    $selectedPlan = array_filter($allPlans, fn($p) => $p['id'] == $selectedPlan['id']);
+    $selectedPlan = reset($selectedPlan);
+    $_SESSION['selected_plan'] = $selectedPlan;
 }
-
-// --------------------------------------------------------------------------
-// FUNÇÕES DE EXIBIÇÃO
 // --------------------------------------------------------------------------
 
-function displayTransaction($db, $transactionId) {
-    $stmt = $db->prepare("
-        SELECT 
-            t.id, t.amount, t.payment_status, t.customer_id, t.infinitypay_order_id,
-            hu.username, hu.password, hu.mikrotik_profile, hu.expires_at
-        FROM transactions t
-        LEFT JOIN hotspot_users hu ON t.id = hu.transaction_id
-        WHERE t.id = ?
-    ");
-    $stmt->execute([$transactionId]);
-    $transaction = $stmt->fetch();
-
-    $transaction['detailed_error'] = null;
-
-    if ($transaction && $transaction['payment_status'] !== 'success') {
-        // Filtra pelo ID da transação no conteúdo da mensagem de log
-        $logStmt = $db->prepare("
-            SELECT log_message
-            FROM logs
-            WHERE log_message LIKE ? 
-            ORDER BY created_at DESC
-            LIMIT 1
-        ");
-        $logStmt->execute(["%TX: $transactionId%"]); 
-        $transaction['detailed_error'] = $logStmt->fetchColumn();
-    }
-    
-    return $transaction;
-}
-
-// Função auxiliar para obter o customer_id (necessário para a simulação)
-function getCustomerIdByTransactionId($db, $transactionId) {
-    $stmt = $db->prepare("SELECT customer_id FROM transactions WHERE id = ?");
-    $stmt->execute([$transactionId]);
-    return $stmt->fetchColumn();
-}
-
-
-if (!function_exists('formatMoney')) {
-    function formatMoney($amount) {
-        return 'R$ ' . number_format($amount, 2, ',', '.');
+// --------------------------------------------------------------------------
+// ETAPA 1: Seleção de Plano
+// --------------------------------------------------------------------------
+if (isset($_POST['select_plan'])) {
+    $planId = intval($_POST['plan_id']);
+    $planData = array_filter($allPlans, fn($p) => $p['id'] == $planId);
+    if (!empty($planData)) {
+        $selectedPlan = reset($planData);
+        $_SESSION['selected_plan'] = $selectedPlan;
+        $_SESSION['test_step'] = 2;
+        $step = 2;
+        $message = "Plano **{$selectedPlan['name']}** selecionado. Prossiga para o cadastro.";
+    } else {
+        $message = "Erro: Plano inválido.";
     }
 }
-
-
-// --------------------------------------------------------------------------
-// LÓGICA DO FLUXO (Tratamento de Ações POST)
 // --------------------------------------------------------------------------
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    
-    // Limpa variáveis de debug ao iniciar uma nova etapa ou reiniciar
-    if (isset($_POST['select_plan']) || isset($_POST['start_checkout']) || isset($_POST['reset_test'])) {
-        unset($_SESSION['mikrotik_call_params']);
-        unset($_SESSION['mikrotik_call_result']);
-    }
+// --------------------------------------------------------------------------
+// ETAPA 2: Cadastro de Cliente e Criação da Transação
+// --------------------------------------------------------------------------
+if (isset($_POST['process_client']) && $step == 2) {
+    // Validação básica
+    $name = sanitizeInput($_POST['name']);
+    $email = sanitizeInput($_POST['email']);
+    $phone = preg_replace('/[^0-9]/', '', (string)$_POST['phone']);
+    $cpf = preg_replace('/[^0-9]/', '', (string)$_POST['cpf']);
 
-    // ======================================================================
-    // ETAPA 1.1: SELECIONAR PLANO
-    // ======================================================================
-    if (isset($_POST['select_plan'])) {
-        $planId = intval($_POST['plan_id']);
-        $selectedPlanData = array_filter($allPlans, function($p) use ($planId) {
-            return (int)$p['id'] === $planId; 
-        });
-        
-        if (reset($selectedPlanData)) {
-            $_SESSION['selected_plan'] = reset($selectedPlanData);
-            $_SESSION['test_step'] = 2; // Avança para a inserção de dados
-            $message = "✅ Plano '{$_SESSION['selected_plan']['name']}' (R$ {$_SESSION['selected_plan']['price']}) selecionado. Insira os dados do cliente.";
-        } else {
-            $message = "❌ Erro: Plano ID $planId não encontrado ou inativo.";
-            $_SESSION['test_step'] = 1; 
-        }
-    } 
-    
-    // ======================================================================
-    // ETAPA 2.1: INSERIR DADOS DO CLIENTE E CRIAR TRANSAÇÃO
-    // ======================================================================
-    elseif (isset($_POST['start_checkout']) && $selectedPlan) {
-        
-        // 1. Coleta e armazena os dados do formulário
-        $clientData = [
-            'name' => sanitizeInput($_POST['name']),
-            'email' => sanitizeInput($_POST['email']),
-            'phone' => preg_replace('/[^0-9]/', '', (string)$_POST['phone']),
-            'cpf' => preg_replace('/[^0-9]/', '', (string)$_POST['cpf']),
-            'plan_id' => $selectedPlan['id'],
-            'plan_price' => $selectedPlan['price'],
-            'client_ip' => '192.168.1.100', // Valor fixo para teste
-            'client_mac' => '00:00:00:00:00:00' // Valor fixo para teste
-        ];
-        $_SESSION['client_data'] = $clientData;
+    $clientData = compact('name', 'email', 'phone', 'cpf');
 
-        // 2. Tenta criar a transação
+    // Simulação da chamada ao 'process_payment_infinity.php'
+    try {
         $db->beginTransaction();
         
-        try {
-            $customerData = [
-                'name' => $clientData['name'], 
-                'email' => $clientData['email'], 
-                'phone' => $clientData['phone'], 
-                'cpf' => $clientData['cpf']
-            ];
-            $customerId = createOrGetCustomer($db, $customerData); 
-            
-            // Inserção da Transação
-            $stmt = $db->prepare("
-                INSERT INTO transactions (
-                    customer_id, plan_id, amount, payment_method, payment_status,
-                    client_ip, client_mac, created_at
-                ) VALUES (?, ?, ?, ?, 'pending', ?, ?, NOW())
-            ");
-            $stmt->execute([
-                $customerId,
-                $clientData['plan_id'],
-                $clientData['plan_price'],
-                'infinitepay_checkout',
-                $clientData['client_ip'],
-                $clientData['client_mac']
-            ]);
-            $transactionId = $db->lastInsertId();
-
-            // Simular o retorno da InfinitePay (Order ID)
-            $invoiceSlug = 'inv-' . uniqid();
-            
-            $stmt = $db->prepare("UPDATE transactions SET infinitypay_order_id = ? WHERE id = ?");
-            $stmt->execute([$invoiceSlug, $transactionId]);
-
-            // PAYLOAD FICTÍCIO DA INFINITEPAY (Gerado após a transação)
-            $payload = [
-                "event" => "invoice_paid",
-                "invoice_slug" => $invoiceSlug,
-                "order_nsu" => strval($transactionId), // ID da transação
-                "status" => "paid",
-                "transaction_nsu" => "IP_NSU_" . time(), 
-                "capture_method" => "credit_card", 
-                "amount" => $selectedPlan['price'] * 100 // Valor em centavos
-            ];
-            $_SESSION['fictitious_payload'] = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-
-            $db->commit();
-
-            $_SESSION['test_transaction_id'] = $transactionId;
-            $_SESSION['test_invoice_slug'] = $invoiceSlug;
-            $_SESSION['test_step'] = 3; // AVANÇA para a Etapa 3: Confirmação do Payload
-            $message = "✅ Transação #$transactionId (Cliente ID: $customerId) criada com sucesso e pendente. Avance para a Etapa 3 para **confirmar o Payload**.";
-
-        } catch (Exception $e) {
-            $db->rollBack();
-            $message = "❌ Erro ao criar transação: " . $e->getMessage();
-            $_SESSION['test_step'] = 2; 
+        // 2.1. Inserir/Buscar Cliente
+        $stmt_customer = $db->prepare("SELECT id FROM customers WHERE cpf = ?");
+        $stmt_customer->execute([$cpf]);
+        $customerId = $stmt_customer->fetchColumn();
+        
+        if (!$customerId) {
+            $stmt_insert = $db->prepare("INSERT INTO customers (name, email, phone, cpf) VALUES (?, ?, ?, ?)");
+            $stmt_insert->execute([$name, $email, $phone, $cpf]);
+            $customerId = $db->lastInsertId();
         }
-    } 
-    
-    // ======================================================================
-    // ETAPA 3.1: CONFIRMAR RECEBIMENTO DO PAYLOAD
-    // ======================================================================
-    elseif (isset($_POST['confirm_payload']) && $transactionId && $step == 3) {
-        $_SESSION['test_step'] = 4; // AVANÇA para a Etapa 4: Processar Webhook
-        $message = "➡️ Payload Webhook (JSON) confirmado. Prossiga para a **Etapa 4: Processar Webhook**.";
+
+        // 2.2. Criar Transação (Status 'pending' inicial)
+        $stmt_trans = $db->prepare("
+            INSERT INTO transactions (
+                customer_id, plan_id, amount, payment_status,
+                mikrotik_link_login_only, mikrotik_link_orig,
+                mikrotik_chap_id, mikrotik_chap_challenge,
+                client_ip, client_mac, created_at, updated_at
+            ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        ");
+        $stmt_trans->execute([
+            $customerId, $selectedPlan['id'], $selectedPlan['price'],
+            $mikrotikSimData['link-login-only'], $mikrotikSimData['link-orig'],
+            $mikrotikSimData['chap-id'], $mikrotikSimData['chap-challenge'],
+            $mikrotikSimData['client_ip'], $mikrotikSimData['client_mac']
+        ]);
+        $transactionId = $db->lastInsertId();
+        
+        // Simulação do payload de retorno da InfinitePay (redirecionamento)
+        $redirectUrl = "http://checkout.simulado.lan/pay/" . $transactionId;
+        
+        $db->commit();
+        
+        // Armazenar dados para a próxima etapa
+        $_SESSION['test_transaction_id'] = $transactionId;
+        $_SESSION['client_data'] = $clientData;
+        $_SESSION['test_step'] = 3;
+        $step = 3;
+        $message = "Cliente e Transação (**#{$transactionId}**) criados com sucesso. Redirecionamento simularia o checkout.";
+
+    } catch (Exception $e) {
+        if ($db->inTransaction()) { $db->rollBack(); }
+        $message = "Erro na Etapa 2: " . $e->getMessage();
     }
+}
 
-    // ======================================================================
-    // ETAPA 4.1: PROCESSAR O WEBHOOK (Simulação Direta)
-    // ======================================================================
-    elseif (isset($_POST['process_webhook']) && $transactionId && $step == 4) {
-        
-        // 1. Obter dados necessários (simulando a busca do webhook)
-        $stmt = $db->prepare("SELECT plan_id, customer_id, client_ip, client_mac FROM transactions WHERE id = ?");
-        $stmt->execute([$transactionId]);
-        $transactionData = $stmt->fetch();
+// --------------------------------------------------------------------------
+// ETAPA 3: Simulação do Checkout
+// --------------------------------------------------------------------------
+if (isset($_POST['simulate_checkout']) && $step == 3) {
+    // Payload Fictício (Simulando o Webhook da InfinitePay de APROVAÇÃO)
+    $fictitiousPayload = [
+        'event' => 'invoice_paid',
+        'order_nsu' => $transactionId,
+        'invoice_slug' => 'INV_' . time(),
+        'transaction_nsu' => 'TXN_' . time(),
+        'status' => 'paid',
+        'capture_method' => 'infinitepay_checkout',
+        'customer' => ['email' => $clientData['email']]
+    ];
+    $_SESSION['fictitious_payload'] = $fictitiousPayload;
+    $_SESSION['test_step'] = 4;
+    $step = 4;
+    $message = "Payload de Webhook (Status **PAID**) simulado e pronto para ser processado.";
+}
 
-        $planId = $transactionData['plan_id'] ?? null;
-        $customerId = $transactionData['customer_id'] ?? null;
-        $clientIp = $transactionData['client_ip'] ?? 'N/A';
-        $clientMac = $transactionData['client_mac'] ?? 'N/A';
+// --------------------------------------------------------------------------
+// ETAPA 4: Simulação do Webhook (`webhook_infinitypay.php`)
+// --------------------------------------------------------------------------
+if (isset($_POST['process_webhook']) && $step == 4 && $fictitiousPayload) {
+    try {
+        $db->beginTransaction();
         
-        $mikrotikCallParams = [
-            'planId' => $planId,
-            'clientIp' => $clientIp,
-            'clientMac' => $clientMac
+        // 4a. Buscar transação APENAS da tabela transactions
+        $stmt_trans = $db->prepare("SELECT * FROM transactions WHERE id = ? AND payment_status = 'pending'");
+        $stmt_trans->execute([$transactionId]);
+        $transaction = $stmt_trans->fetch();
+
+        if (!$transaction) {
+            throw new Exception("Transação #{$transactionId} não encontrada ou status incorreto.");
+        }
+
+        // 4b. Buscar detalhes do plano (mikrotik_profile e duration_seconds)
+        $stmt_plan = $db->prepare("SELECT mikrotik_profile, duration_seconds FROM plans WHERE id = ?"); 
+        $stmt_plan->execute([$transaction['plan_id']]);
+        $plan = $stmt_plan->fetch();
+
+        if (!$plan) {
+            throw new Exception("Plano ID {$transaction['plan_id']} não encontrado.");
+        }
+        
+        // 4c. Simular Ativação Cliente (Criação de Usuário Hotspot)
+        $mt = new MikrotikAPI();
+        // A função provisionHotspotUser está sendo mockada para retornar um sucesso
+        $provisionResult = [
+            'success' => true,
+            'username' => 'user' . $transactionId,
+            'password' => 'pass' . $transactionId,
+            'mikrotik_profile' => $plan['mikrotik_profile'],
+            'message' => 'Usuário provisionado (simulado).'
+        ];
+
+        $_SESSION['mikrotik_call_params'] = [
+            'plan_id' => $transaction['plan_id'],
+            'client_ip' => $transaction['client_ip']
+        ];
+        $_SESSION['mikrotik_call_result'] = $provisionResult;
+
+        if (!$provisionResult['success']) {
+            throw new Exception("Falha ao provisionar usuário no Mikrotik (simulado).");
+        }
+        
+        // ======================================================================
+        // CÁLCULO E INSERÇÃO DE CREDENCIAIS (LÓGICA CORRIGIDA DO WEBHOOK)
+        // ======================================================================
+        $durationSeconds = intval($plan['duration_seconds']);
+        $hasDuration = $durationSeconds > 0;
+
+        $expiresAt = NULL;
+        if ($hasDuration) {
+            // CÁLCULO IDÊNTICO AO QUE ESTÁ NO webhook_infinitypay.php CORRIGIDO
+            $expiresAt = date('Y-m-d H:i:s', time() + $durationSeconds);
+        }
+
+        $insertColumns = "transaction_id, plan_id, customer_id, username, password, mikrotik_profile, expires_at, created_at"; 
+        $insertPlaceholders = "?, ?, ?, ?, ?, ?, ?, NOW()";
+
+        $params = [
+            $transactionId,
+            $transaction['plan_id'],
+            $transaction['customer_id'],
+            $provisionResult['username'],
+            $provisionResult['password'],
+            $provisionResult['mikrotik_profile'],
+            $expiresAt // <-- A data já calculada ou NULL
         ];
         
-        $_SESSION['mikrotik_call_params'] = $mikrotikCallParams; // Salva para exibição
-        $_SESSION['webhook_raw_response'] = "SIMULAÇÃO DIRETA - Não houve chamada cURL."; // Limpa a resposta crua anterior
+        // 4d. Salvar CREDENCIAIS no banco de dados (Tabela hotspot_users)
+        $insertSql = "INSERT INTO hotspot_users ({$insertColumns}) VALUES ({$insertPlaceholders})";
+        $stmt = $db->prepare($insertSql);
+        $stmt->execute($params);
 
-        if (!$planId || !$customerId) {
-             $message = "❌ Erro: Dados essenciais (Plano ou Cliente) não encontrados na transação $transactionId. Por favor, reinicie o teste.";
-             $_SESSION['test_step'] = 1;
-        } else {
-            // 2. Instanciar e chamar a API do Mikrotik (SIMULAÇÃO DO CORPO DO WEBHOOK)
-            $mt = new MikrotikAPI();
-            
-            // Assume que provisionHotspotUser aceita $planId e $clientIp
-            $userCreationResult = $mt->provisionHotspotUser($planId, $clientIp); 
-            
-            $_SESSION['mikrotik_call_result'] = $userCreationResult; // Salva o resultado para exibição
-            
-            // 3. Simular a atualização do DB (COMMIT/ROLLBACK)
-            if ($userCreationResult['success']) {
-                $db->beginTransaction();
-                try {
-                    // a) Atualizar status da transação para 'success'
-                    $stmt = $db->prepare("UPDATE transactions SET payment_status = 'success', updated_at = NOW() WHERE id = ?");
-                    $stmt->execute([$transactionId]);
+        // 4e. ATUALIZAR STATUS DA TRANSAÇÃO
+        $stmt = $db->prepare("
+            UPDATE transactions 
+            SET payment_status = 'approved',
+                infinitypay_order_id = ?,
+                paid_at = NOW(),
+                gateway = 'infinitepay_checkout',
+                payment_method = ?,
+                payment_id = ?,
+                updated_at = NOW()
+            WHERE id = ?
+        ");
+        
+        $stmt->execute([
+            $fictitiousPayload['transaction_nsu'],
+            $fictitiousPayload['capture_method'],
+            $fictitiousPayload['invoice_slug'],
+            $transactionId
+        ]);
+        
+        $db->commit();
+        $message = "Webhook SUCESSO! Usuário **{$provisionResult['username']}** criado no `hotspot_users`.";
+        
+        // Buscar dados finais para display
+        $stmt_final = $db->prepare("SELECT * FROM hotspot_users WHERE transaction_id = ?");
+        $stmt_final->execute([$transactionId]);
+        $_SESSION['transacao_final'] = $stmt_final->fetch() ?: [];
 
-                    // b) Inserir o usuário hotspot
-                    // Assumindo que a validade é configurada por padrão no Mikrotik profile
-                    $stmt = $db->prepare("
-                        INSERT INTO hotspot_users 
-                        (transaction_id, customer_id, plan_id, username, password, mikrotik_profile, expires_at)
-                        VALUES (?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY)) 
-                        ON DUPLICATE KEY UPDATE 
-                        username = VALUES(username), password = VALUES(password), mikrotik_profile = VALUES(mikrotik_profile)
-                    ");
-                    
-                    $stmt->execute([
-                        $transactionId, 
-                        $customerId, 
-                        $planId, 
-                        $userCreationResult['username'], 
-                        $userCreationResult['password'], 
-                        $userCreationResult['mikrotik_profile']
-                    ]);
-                    
-                    $db->commit();
-                    $message = "✅ SIMULAÇÃO WEBHOOK SUCESSO! Usuário Hotspot criado: **{$userCreationResult['username']}**. O status da transação foi atualizado para 'success'.";
-                
-                } catch (Exception $e) {
-                    $db->rollBack();
-                    $message = "❌ ERRO DB NA SIMULAÇÃO: O provisionamento no Mikrotik foi bem-sucedido, mas a atualização do DB falhou: " . $e->getMessage();
-                    // Logar o erro do DB para facilitar a depuração
-                    logEvent('webhook_error', "Erro ao atualizar DB após provisionamento: {$e->getMessage()} | TX: $transactionId", $transactionId);
-                }
-            } else {
-                 $message = "❌ SIMULAÇÃO WEBHOOK FALHOU! Falha ao provisionar usuário Hotspot. Verifique os detalhes do API abaixo.";
-                 // Logar o erro do API para facilitar a depuração
-                 logEvent('webhook_error', "Falha ao provisionar usuário Mikrotik: {$userCreationResult['message']} | TX: $transactionId", $transactionId);
-            }
-         }
+    } catch (Exception $e) {
+        if ($db->inTransaction()) { $db->rollBack(); }
+        $message = "Webhook FALHOU! Erro: " . $e->getMessage();
+        $_SESSION['transacao_final'] = ['detailed_error' => $e->getMessage()];
     }
-    
-    // Reset da sessão
-    elseif (isset($_POST['reset_test'])) {
-        session_destroy();
-        header("Location: testefluxovenda.php");
-        exit();
-    }
-    
-    // Previne reenvio do formulário ao recarregar
-    header("Location: testefluxovenda.php");
-    exit();
 }
+// --------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------
+// Funções de Reset
+// --------------------------------------------------------------------------
+if (isset($_POST['reset'])) {
+    // Lógica para apagar a transação atual do DB para evitar duplicação em testes
+    if ($transactionId) {
+        try {
+            $db->exec("DELETE FROM hotspot_users WHERE transaction_id = {$transactionId}");
+            $db->exec("DELETE FROM transactions WHERE id = {$transactionId}");
+            $message .= "Transação #{$transactionId} e usuário do hotspot removidos do DB.";
+        } catch (Exception $e) {
+            $message .= "Erro ao tentar limpar o DB: " . $e->getMessage();
+        }
+    }
+    
+    $_SESSION['test_transaction_id'] = null;
+    $_SESSION['test_step'] = 1;
+    $_SESSION['selected_plan'] = null;
+    $_SESSION['client_data'] = [];
+    $_SESSION['fictitious_payload'] = null;
+    $_SESSION['mikrotik_call_params'] = null;
+    $_SESSION['mikrotik_call_result'] = null;
+    $_SESSION['transacao_final'] = [];
+    $transactionId = null;
+    $step = 1;
+    $message = "Fluxo de teste RESETADO. " . $message;
+}
+// --------------------------------------------------------------------------
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Teste de Fluxo de Venda - Hotspot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DEBUG: Fluxo de Venda Hotspot</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        .container { max-width: 800px; margin: auto; }
-        h1 { margin-bottom: 5px; }
-        h2 { border-bottom: 2px solid #ccc; padding-bottom: 10px; margin-top: 30px; }
-        .message { padding: 10px; margin-bottom: 20px; border-radius: 5px; font-weight: bold; }
-        .message.success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .message.error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin-right: 10px; }
-        .plan-card { border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
-        .plan-card:hover { background-color: #f9f9f9; }
-        pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-        .step-inactive { opacity: 0.5; pointer-events: none; }
-        input[type="text"], input[type="email"] { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        .form-group { margin-bottom: 15px; }
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f7f6; }
+        .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2, h3 { color: #333; }
+        h2 { border-bottom: 2px solid #eee; padding-bottom: 5px; margin-bottom: 15px; }
+        .step { background-color: #e9ecef; padding: 15px; margin-bottom: 20px; border-radius: 6px; border-left: 5px solid #007bff; }
+        .active-step { background-color: #d1ecf1; border-color: #00bcd4; }
+        .message { padding: 10px; margin-bottom: 20px; border-radius: 4px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        form { margin-top: 15px; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        input[type="text"], input[type="email"], input[type="tel"], select { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 15px; }
+        button:hover { background-color: #0056b3; }
+        .reset-btn { background-color: #dc3545; float: right; }
+        .reset-btn:hover { background-color: #c82333; }
+        .debug-box { background: #f8f9fa; padding: 10px; border: 1px solid #ced4da; margin-top: 10px; border-radius: 4px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Teste de Fluxo de Venda Hotspot (InfinitePay)</h1>
-        <p>Etapa Atual: **<?php echo $step; ?>** | Transação: **#<?php echo $transactionId ?? 'N/A'; ?>**</p>
+        <h1>Sistema de Debug: Fluxo de Venda</h1>
+        <button class="reset-btn" onclick="document.getElementById('resetForm').submit();">RESETAR TUDO</button>
+        <form id="resetForm" method="post" style="display: none;"><input type="hidden" name="reset" value="1"></form>
+        <p>Transação Atual: **#<?php echo $transactionId ?: 'N/A'; ?>** (Etapa **<?php echo $step; ?>**)</p>
+        
         <?php if ($message): ?>
-            <div class="message <?php echo strpos($message, '✅') !== false || strpos($message, '➡️') !== false ? 'success' : 'error'; ?>">
-                <?php echo $message; ?>
-            </div>
+        <div class="message"><?php echo $message; ?></div>
         <?php endif; ?>
-        
-        <form method="POST" style="margin-bottom: 20px;">
-            <button type="submit" name="reset_test">🔄 Reiniciar Teste</button>
-        </form>
 
-        <hr>
-
-        <div class="step <?php echo $step !== 1 ? 'step-inactive' : ''; ?>">
-            <h2>Etapa 1: Escolha do Plano</h2>
-            <?php foreach ($allPlans as $plan): ?>
-            <form method="POST" style="margin: 0; padding: 0;">
-                <div class="plan-card">
-                    <div>
-                        <strong><?php echo htmlspecialchars($plan['name']); ?></strong> (<?php echo htmlspecialchars($plan['description']); ?>)<br>
-                        Preço: **<?php echo formatMoney($plan['price']); ?>**
-                    </div>
-                    <input type="hidden" name="plan_id" value="<?php echo $plan['id']; ?>">
-                    <button type="submit" name="select_plan" value="Selecionar" <?php echo $step !== 1 ? 'disabled' : ''; ?>>
-                        Selecionar
-                    </button>
-                </div>
+        <div class="step <?php echo $step == 1 ? 'active-step' : ''; ?>">
+            <h2>1. Escolha do Plano</h2>
+            <form method="post">
+                <label for="plan_id">Plano:</label>
+                <select id="plan_id" name="plan_id" required>
+                    <?php foreach ($allPlans as $plan): ?>
+                        <option value="<?php echo $plan['id']; ?>" <?php echo ($selectedPlan && $selectedPlan['id'] == $plan['id']) ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($plan['name']); ?> (R$ <?php echo number_format($plan['price'], 2, ',', '.'); ?>) - Perfil: <?php echo htmlspecialchars($plan['mikrotik_profile']); ?> (Duração: <?php echo number_format($plan['duration_seconds'], 0, ',', '.'); ?>s)
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <button type="submit" name="select_plan" <?php echo $step != 1 ? 'disabled' : ''; ?>>Selecionar Plano</button>
             </form>
-            <?php endforeach; ?>
-        </div>
-
-        <div class="step <?php echo $step !== 2 ? 'step-inactive' : ''; ?>">
-            <h2>Etapa 2: Inserir Dados e Criar Transação Pendente</h2>
             <?php if ($selectedPlan): ?>
-                <p>Plano Selecionado: **<?php echo htmlspecialchars($selectedPlan['name']); ?>** (<?php echo formatMoney($selectedPlan['price']); ?>)</p>
-                
-                <form method="POST">
-                    <div class="form-group">
-                        <label for="name">Nome Completo:</label>
-                        <input type="text" id="name" name="name" value="<?php echo htmlspecialchars($clientData['name'] ?? 'Cliente Teste'); ?>" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="email">E-mail:</label>
-                        <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($clientData['email'] ?? 'teste' . time() . '@exemplo.com'); ?>" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="phone">Telefone (Somente números):</label>
-                        <input type="text" id="phone" name="phone" value="<?php echo htmlspecialchars($clientData['phone'] ?? '11987654321'); ?>" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="cpf">CPF (Somente números):</label>
-                        <input type="text" id="cpf" name="cpf" value="<?php echo htmlspecialchars($clientData['cpf'] ?? '12345678901'); ?>" required>
-                    </div>
-                    <button type="submit" name="start_checkout" <?php echo $step !== 2 ? 'disabled' : ''; ?>>
-                        Criar Transação Pendente
-                    </button>
-                </form>
-            <?php else: ?>
-                <p style="color: red;">Volte à Etapa 1 para selecionar um plano.</p>
-            <?php endif; ?>
-        </div>
-        
-        <div class="step <?php echo $step !== 3 ? 'step-inactive' : ''; ?>">
-            <h2>Etapa 3: Confirmar Payload Webhook</h2>
-            <?php if ($transactionId && $step >= 3 && $fictitiousPayload): ?>
-                <p>Transação **#<?php echo $transactionId; ?>** criada. Este é o Payload fictício que o InfinitePay enviaria para o seu `webhook_infinitypay.php`.</p>
-                
-                <h3 style="color: #007bff;">Payload Fictício (JSON)</h3>
-                <pre><?php echo htmlspecialchars($fictitiousPayload); ?></pre>
-                
-                <form method="POST" style="margin-top: 20px;">
-                    <button type="submit" name="confirm_payload" <?php echo $step !== 3 ? 'disabled' : ''; ?>>
-                        ✅ Confirmar Recebimento e Avançar para o Processamento
-                    </button>
-                </form>
-            <?php elseif ($step >= 3): ?>
-                <p style="color: red;">Erro: Payload não encontrado. Por favor, reinicie o teste na Etapa 1.</p>
+            <p class="debug-box">Plano Selecionado: **<?php echo htmlspecialchars($selectedPlan['name']); ?>**</p>
             <?php endif; ?>
         </div>
 
-        <?php if ($transactionId && $step >= 4): ?>
-        <div class="step">
-            <h2>Etapa 4: Simular Processamento do Webhook</h2>
-            
-            <form method="POST" style="margin-top: 20px; margin-bottom: 20px;">
-                <button type="submit" name="process_webhook" <?php echo $step !== 4 ? 'disabled' : ''; ?>>
-                    ▶️ Processar Webhook (Simular Execução de `webhook_infinitypay.php`)
-                </button>
+        <div class="step <?php echo $step == 2 ? 'active-step' : ''; ?>">
+            <h2>2. Cadastro e Transação</h2>
+            <form method="post">
+                <input type="hidden" name="selected_plan_id" value="<?php echo $selectedPlan['id'] ?? ''; ?>">
+                <label for="name">Nome:</label><input type="text" id="name" name="name" value="<?php echo $clientData['name'] ?? 'Teste Fluxo'; ?>" required>
+                <label for="email">E-mail:</label><input type="email" id="email" name="email" value="<?php echo $clientData['email'] ?? 'teste@fluxo.com'; ?>" required>
+                <label for="phone">Telefone:</label><input type="tel" id="phone" name="phone" value="<?php echo $clientData['phone'] ?? '123456789'; ?>" required>
+                <label for="cpf">CPF (Cliente ID):</label><input type="text" id="cpf" name="cpf" value="<?php echo $clientData['cpf'] ?? '12345678901'; ?>" required>
+                <button type="submit" name="process_client" <?php echo $step != 2 ? 'disabled' : ''; ?>>Criar Transação</button>
             </form>
-            
-            <hr>
+            <?php if ($transactionId && $step >= 3): ?>
+            <p class="debug-box">Transação **#<?php echo $transactionId; ?>** criada. Status inicial: **pending**.</p>
+            <?php endif; ?>
+        </div>
 
-            <?php if ($mikrotikCallParams && $mikrotikCallResult): ?>
-                <h3>Detalhes da Chamada Mikrotik API (Simulação)</h3>
-                
-                <h4 style="color: #007bff;">Parâmetros da Chamada provisionHotspotUser()</h4>
-                <pre>
-provisionHotspotUser(
-    planId: <?php echo htmlspecialchars($mikrotikCallParams['planId']); ?>,
-    clientIp: '<?php echo htmlspecialchars($mikrotikCallParams['clientIp']); ?>',
-    clientMac: '<?php echo htmlspecialchars($mikrotikCallParams['clientMac']); ?>'
-)</pre>
-                
-                <h4 style="color: <?php echo $mikrotikCallResult['success'] ? 'green' : 'red'; ?>;">Resultado Retornado (MikrotikAPI.php)</h4>
-                <pre><?php echo htmlspecialchars(json_encode($mikrotikCallResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)); ?></pre>
-
-                <?php if (!$mikrotikCallResult['success']): ?>
-                    <div class="message error" style="margin-top: 10px;">
-                        ❌ **ERRO CRÍTICO:** O Provisionamento falhou! O erro acima é o que a API do MikroTik retornou. Verifique as credenciais do MikroTik (tabela `settings`) e o `mikrotik_profile` do plano (tabela `plans`).
-                    </div>
-                <?php endif; ?>
+        <div class="step <?php echo $step == 3 ? 'active-step' : ''; ?>">
+            <h2>3. Simulação de Checkout (Redirecionamento)</h2>
+            <p>Simula o pagamento e o redirecionamento para o nosso sistema.</p>
+            <form method="post">
+                <button type="submit" name="simulate_checkout" <?php echo $step != 3 ? 'disabled' : ''; ?>>Simular Pagamento Aprovado</button>
+            </form>
+            <?php if ($fictitiousPayload): ?>
+            <div class="debug-box">
+                <p>Payload de Webhook simulado pronto: Status **<?php echo $fictitiousPayload['status']; ?>**</p>
                 <hr>
+                <h4 style="margin-top: 5px;">Conteúdo Completo do Payload:</h4>
+                <pre style="white-space: pre-wrap; word-wrap: break-word;"><?php echo htmlspecialchars(json_encode($fictitiousPayload, JSON_PRETTY_PRINT)); ?></pre>
+            </div>
             <?php endif; ?>
-            <h3>Dados da Transação (DB)</h3>
-            <?php $transacaoFinal = displayTransaction($db, $transactionId); ?>
-            
-            <table>
-                <tr><th>ID Transação</th><td><?php echo $transacaoFinal['id']; ?></td></tr>
-                <tr><th>Status Pagamento</th><td><b style="color: <?php echo $transacaoFinal['payment_status'] === 'success' ? 'green' : 'red'; ?>;"><?php echo strtoupper($transacaoFinal['payment_status']); ?></b></td></tr>
-                <tr><th>Cliente</th><td><?php echo htmlspecialchars($clientData['name'] ?? 'N/A'); ?></td></tr>
-            </table>
+        </div>
 
-            <h3>Resultado da Execução do Webhook</h3>
-            
-            <table>
-                <tr><th>Status Final</th><td><b style="color: <?php echo $transacaoFinal['payment_status'] === 'success' ? 'green' : 'red'; ?>;"><?php echo strtoupper($transacaoFinal['payment_status']); ?></b></td></tr>
-                <tr><th>Usuário Hotspot</th><td><b style="color: green;"><?php echo $transacaoFinal['username'] ?? 'ERRO/AUSENTE'; ?></b></td></tr>
-                <tr><th>Profile (Mikrotik)</th><td><?php echo $transacaoFinal['mikrotik_profile'] ?? 'AUSENTE'; ?></td></tr>
-            </table>
-            
-            <?php if (empty($transacaoFinal['username']) && $step > 4): ?>
-                <div class="message error" style="margin-top: 20px;">
-                    ⚠️ O Webhook falhou em criar o usuário Hotspot. Verifique o Log de Erro Detalhado abaixo.
-                </div>
+        <div class="step <?php echo $step == 4 ? 'active-step' : ''; ?>">
+            <h2>4. Processamento do Webhook (`webhook_infinitypay.php`)</h2>
+            <p>Ação real que cria o usuário no `hotspot_users` (e chamaria o Mikrotik).</p>
+            <form method="post">
+                <button type="submit" name="process_webhook" <?php echo $step != 4 ? 'disabled' : ''; ?>>Processar Webhook</button>
+            </form>
+
+            <?php if (!empty($mikrotikCallResult)): ?>
+                <hr>
+                <h3>Resultado da Simulação do Mikrotik</h3>
+                <p>Usuário Hotspot: **<?php echo htmlspecialchars($mikrotikCallResult['username'] ?? 'N/A'); ?>**</p>
+                <p>Senha: **<?php echo htmlspecialchars($mikrotikCallResult['password'] ?? 'N/A'); ?>**</p>
             <?php endif; ?>
-
+            
             <?php if ($transacaoFinal['detailed_error'] ?? false): ?>
                  <h3 style="color: red;">Log de Erro Detalhado (Tabela `logs`)</h3>
                  <pre style="background: #ffeded; border: 1px solid #ffaaaa;"><?php echo htmlspecialchars($transacaoFinal['detailed_error']); ?></pre>
                  <p>Este é o erro **exato** que o processo logou.</p>
             <?php endif; ?>
-            
         </div>
-        <?php endif; // Fim Etapa 4 ?>
+        
         
         <?php if ($transactionId && $step >= 4): ?>
         <hr>
         <div style="margin-top: 30px;">
             <h2>Simulação da Tela de Sucesso (`payment_success.php`)</h2>
+            
+            <div style="margin-bottom: 20px; background: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px;">
+                <h3 style="margin-bottom: 10px; color: #856404;">🔍 Debug de Expiração (Calculado vs. Salvo)</h3>
+                <?php 
+                // 1. Buscar a duração do plano (garantindo que estamos usando o valor mais recente)
+                $durationSeconds = 0;
+                if ($selectedPlan && isset($selectedPlan['id'])) {
+                    $stmt_plan_debug = $db->prepare("SELECT duration_seconds FROM plans WHERE id = ?");
+                    $stmt_plan_debug->execute([$selectedPlan['id']]);
+                    $planDebugData = $stmt_plan_debug->fetch();
+                    if ($planDebugData) {
+                        $durationSeconds = intval($planDebugData['duration_seconds']);
+                    }
+                }
+                
+                // 2. Calcular a expiração (o que o webhook DEVERIA ter feito AGORA)
+                $calculatedExpiresAt = 'N/A (Duração = 0 ou Plano não selecionado)';
+                if ($durationSeconds > 0) {
+                    $calculatedTimestamp = time() + $durationSeconds;
+                    $calculatedExpiresAt = date('Y-m-d H:i:s', $calculatedTimestamp);
+                }
+                
+                // 3. Buscar a expiração SALVA no DB (hotspot_users)
+                $dbExpiresAt = 'N/A (Usuário não criado)';
+                $stmt_hotspot = $db->prepare("SELECT expires_at FROM hotspot_users WHERE transaction_id = ?");
+                $stmt_hotspot->execute([$transactionId]);
+                $hotspotUser = $stmt_hotspot->fetch();
+                if ($hotspotUser) {
+                    $dbExpiresAt = $hotspotUser['expires_at'] ?? 'NULL/Vazio';
+                }
+                
+                // 4. Mostrar Resultados
+                ?>
+                <p><strong>Duração do Plano (Segundos):</strong> **<?php echo number_format($durationSeconds, 0, ',', '.'); ?>**</p>
+                <p style="color: #004085;">
+                    **Expiração CALCULADA (NOW + Duração):** <?php echo $calculatedExpiresAt; ?>
+                </p>
+                <p style="color: #155724;">
+                    **Expiração SALVA no DB** (`hotspot_users`.`expires_at`): 
+                    <?php echo $dbExpiresAt; ?>
+                </p>
+                <?php 
+                // Verifica se a data salva é o momento atual (erro comum)
+                $isSavedDateCloseToNow = ($dbExpiresAt !== 'N/A (Usuário não criado)' && str_starts_with($dbExpiresAt, date('Y-m-d')));
+                
+                // LINHA CORRIGIDA
+                if ($calculatedExpiresAt !== 'N/A (Duração = 0 ou Plano não selecionado)' && $dbExpiresAt !== 'N/A (Usuário não criado)' && $isSavedDateCloseToNow && abs(strtotime($dbExpiresAt) - time()) < 10) : 
+                ?>
+                    <p style="color: red; font-weight: bold; margin-top: 10px;">
+                        ⚠️ ERRO CRÍTICO DETECTADO: O valor SALVO no DB (`<?php echo $dbExpiresAt; ?>`) é o momento atual, ignorando a duração de **<?php echo number_format($durationSeconds, 0, ',', '.'); ?>** segundos. O problema está na query de inserção do `webhook_infinitypay.php` (a coluna `expires_at` não está recebendo a data futura, possivelmente devido a um `DEFAULT` incorreto ou erro de `INSERT`).
+                    </p>
+                <?php endif; ?>
+            </div>
             <p>Este frame carrega o arquivo `payment_success.php` usando o ID da transação atual (<strong>#<?php echo $transactionId; ?></strong>) como parâmetro `external_reference`.</p>
-            <p><strong>Se o Webhook (Etapa 4) foi bem-sucedido:</strong> você verá as credenciais de acesso dentro do frame.</p>
-            <p><strong>Se o Webhook falhou:</strong> você verá a tela de "Aguardando Confirmação" e a checagem automática falhará.</p>
+            <p><strong>Teste de Sucesso:</strong> Se o Webhook (Etapa 4) foi bem-sucedido, o formulário de login dentro deste frame deve usar os dados do Mikrotik salvos na transação (**`http://hotspot.simulado.lan/login`**, etc.).</p>
             <iframe 
                 src="payment_success.php?external_reference=<?php echo $transactionId; ?>" 
                 width="100%" 
                 height="600px" 
-                style="border: 1px solid #ccc; border-radius: 5px;"
-            >
-                Seu navegador não suporta iframes.
-            </iframe>
+                style="border: 1px solid #ccc; border-radius: 8px;"
+                frameborder="0"
+            ></iframe>
         </div>
-        <?php endif; ?>
-
+        <?php endif; // Fim Simulação da Tela de Sucesso ?>
     </div>
 </body>
 </html>
