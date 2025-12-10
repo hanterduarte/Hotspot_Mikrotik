@@ -10,7 +10,6 @@ $linkLoginOnly = '';
 $linkOrig = '';
 $chapId = '';
 $chapChallenge = '';
-// ---------------------------------------------------
 
 $credentials = null;
 $transactionStatus = null;
@@ -35,11 +34,11 @@ if ($externalReference) {
                 t.mikrotik_link_orig,       
                 t.mikrotik_chap_id,         
                 t.mikrotik_chap_challenge,
-                c.email as customer_email   /* 🟢 NOVO: Email do Cliente */
+                c.email as customer_email
             FROM transactions t
             LEFT JOIN hotspot_users hu ON t.id = hu.transaction_id
             LEFT JOIN plans p ON t.plan_id = p.id
-            LEFT JOIN customers c ON t.customer_id = c.id /* 🟢 NOVO: JOIN com a tabela customers */
+            LEFT JOIN customers c ON t.customer_id = c.id
             WHERE t.id = ?
             ORDER BY hu.created_at DESC
             LIMIT 1
@@ -49,28 +48,23 @@ if ($externalReference) {
 
         if ($result) {
             $transactionStatus = strtolower($result['payment_status']);
-            
-            // Corrige o nome do plano se o plan_id estiver correto no DB
-            $planName = $result['plan_name'] ?? $planName; 
+            $planName = $result['plan_name'] ?? $planName;
             $expiresAt = $result['expires_at']; 
-            
-            // ATRIBUIÇÃO DO EMAIL
             $customerEmail = $result['customer_email'] ?? $customerEmail;
             
-            // ATRIBUIÇÃO DAS VARIÁVEIS DO MIKROTIK DO BANCO DE DADOS
+            // Atribui as variáveis do Mikrotik buscadas do DB
             $linkLoginOnly = $result['mikrotik_link_login_only'] ?? '';
             $linkOrig = $result['mikrotik_link_orig'] ?? '';
             $chapId = $result['mikrotik_chap_id'] ?? '';
             $chapChallenge = $result['mikrotik_chap_challenge'] ?? '';
-            
-            // CONDIÇÃO DE SUCESSO: Aprovado/Pago E o Usuário Hotspot foi criado (username não vazio)
+
             if (($transactionStatus === 'approved' || $transactionStatus === 'paid' || $transactionStatus === 'success') && !empty($result['username'])) {
                 $credentials = $result;
             }
         }
         
     } catch (Exception $e) {
-        // logEvent('payment_success_db_error', $e->getMessage(), $externalReference); 
+        logEvent('payment_success_db_error', $e->getMessage(), $externalReference);
         $credentials = null; 
     }
 }
@@ -82,6 +76,7 @@ if ($externalReference) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pagamento Aprovado - WiFi Barato</title>
     <style>
+        /* ESTILOS BASE (MANTIDOS) */
         body {
             background-color: #4CAF50 !important;
             background-image: linear-gradient(to bottom right, #4CAF50, #8BC34A) !important;
@@ -176,7 +171,7 @@ if ($externalReference) {
             text-align: center;
             margin-top: 20px;
             padding: 15px;
-            border-top: none; 
+            border-top: 1px solid #eee;
         }
         
         .login-form input[type="text"],
@@ -200,23 +195,28 @@ if ($externalReference) {
             margin-top: 5px;
         }
         
-        /* NOVO: Container de Opções Secundárias (fundo verde claro) */
-        .secondary-options {
+        /* 🚨 NOVO: Estilos do Container de Retorno (Usando .return-container) */
+        .return-container {
+            /* Estilos de .secondary-options */
             background-color: #f0fff0; /* Verde bem claro */
             border: 1px solid #c3e6cb;
             padding: 15px;
             border-radius: 8px;
             margin-top: 25px; 
             text-align: center;
+            box-shadow: none; /* Garante a sutileza */
         }
 
-        .secondary-info {
+        /* 🚨 NOVO: Estilos da Mensagem de Informação (Usando p dentro de .return-container) */
+        .return-container p {
+            /* Estilos de .secondary-info */
             font-size: 0.9em;
             color: #5a5a5a;
             margin-bottom: 10px;
+            line-height: 1.4; /* Mantido para melhor leitura */
         }
         
-        /* NOVO: Botão de Redirecionamento (Melhor Contraste - Verde Escuro) */
+        /* 🚨 NOVO: Estilo para o Botão de Redirecionamento (Melhor Contraste - Verde Escuro) */
         .redirect-button {
             background-color: #00796b; 
             color: white;
@@ -244,7 +244,7 @@ if ($externalReference) {
         <?php if ($credentials): ?>
             <div class="icon-success">✔️</div>
             <h1>Pagamento Aprovado!</h1>
-            <p>Seu acesso para o **<?php echo htmlspecialchars($planName ?? 'Plano Hotspot'); ?>** foi liberado.</p>
+            <p>Seu acesso para o **<?php echo htmlspecialchars($planName); ?>** foi liberado.</p>
             
             <div class="credentials">
                 <h2>Suas Credenciais</h2>
@@ -279,21 +279,18 @@ if ($externalReference) {
                 </form>
             </div>
             <?php else: ?>
-            <p style="margin-top: 20px; font-size: 0.9em; color: #555;">**Nota:** Você deve retornar para a tela de login principal e utilizar suas credenciais de acesso no campo de Usuáario e Senha.</p>
+            <p style="margin-top: 20px; font-size: 0.9em; color: #555;">**Nota:** Não foi possível carregar as variáveis de login do Hotspot.</p>
             <?php endif; ?>
             
-            <div class="secondary-options">
-                <p class="secondary-info">
-                    Se preferir, clique abaixo para voltar à tela principal e fazer o login lá:
-                </p>
+            <div class="return-container">
+                <p>Se preferir, clique abaixo para voltar à tela principal e fazer o login lá:</p>
                 <a href="index.php" class="redirect-button">Voltar para a Tela Principal de Login</a>
             </div>
             
-            
         <?php else: ?>
             <div class="icon-success">⏳</div>
-            <h1>Aguardando Confirmação</h1>
-            <p>Seu pagamento foi aprovado, mas estamos aguardando a criação do seu usuário.</p>
+            <h1 id="pollingStatusTitle">Aguardando Confirmação</h1>
+            <p id="pollingStatusMessage">Seu pagamento foi aprovado, mas estamos aguardando a criação do seu usuário.</p>
             <div class="waiting-message">Aguardando credenciais do Hotspot...</div>
             <p style="font-size: 0.9em; color: #555; margin-top: 15px;">Aguarde, esta página será atualizada automaticamente.</p>
             
@@ -301,12 +298,11 @@ if ($externalReference) {
     </div>
 
     <script>
-        // 🟢 AJUSTE: Aumentando maxChecks para 50 (50 verificações * 3 segundos = 150 segundos)
-        const maxChecks = 50;
+        const maxChecks = 20; 
         const transactionId = '<?php echo $externalReference; ?>';
-        // 🟢 NOVO: Captura o email para a mensagem de fallback
         const customerEmail = '<?php echo htmlspecialchars($customerEmail); ?>';
-        const container = document.querySelector('.container'); // Referência ao container para alteração
+        const titleElement = document.getElementById('pollingStatusTitle');
+        const messageElement = document.getElementById('pollingStatusMessage');
 
         <?php if (!$credentials && $externalReference): ?>
         let checkCount = 0;
@@ -314,32 +310,22 @@ if ($externalReference) {
         const checkInterval = setInterval(async () => {
             checkCount++;
             
-            // 🟢 TRATAMENTO DE TEMPO LIMITE
             if (checkCount > maxChecks) {
                 clearInterval(checkInterval);
-                console.error('Tempo limite de verificação excedido (90 segundos).');
+                console.error('Tempo limite de verificação excedido.');
                 
-                
-                // 1. Altera o conteúdo do container para a mensagem de fallback por email
-                container.innerHTML = `
-                    <div class="icon-success" style="color: #ff9800;">⚠️</div>
-                    <h1 style="color: #ff9800;">Acesso em Processamento</h1>
-                    <p style="text-align: center; margin-top: 15px;">
-                        O pagamento foi confirmado, mas a criação de usuário no Mikrotik pode estar demorando.
-                        <br><br>
-                        <strong>Suas credenciais foram enviadas para o email cadastrado: ${customerEmail}.</strong>
-                        <br>
-                        Por favor, verifique sua caixa de entrada e spam.
-                    </p>
-                    <div class="secondary-options">
-                        <p class="secondary-info">
-                            Se preferir, clique abaixo para tentar logar na tela principal:
-                        </p>
-                        <a href="index.php" class="redirect-button">Voltar para a Tela Principal de Login</a>
-                    </div>
-                `;
-                
-                return; // Encerra a função após exibir o fallback
+                if (titleElement) titleElement.textContent = 'Tempo Excedido';
+                if (messageElement) {
+                     messageElement.innerHTML = `
+                        O sistema demorou a responder. Tente recarregar ou verifique o email <strong>${customerEmail}</strong>.
+                    `;
+                } else {
+                     document.querySelector('.container p').innerHTML = `
+                        O sistema demorou a responder. Tente recarregar ou verifique o email <strong>${customerEmail}</strong>.
+                    `;
+                }
+
+                return;
             }
 
             try {
@@ -347,15 +333,21 @@ if ($externalReference) {
                 const response = await fetch(`check_payment_status.php?payment_id=${transactionId}`);
                 const result = await response.json();
 
+                // 🚨 Atualiza a mensagem se o status mudar para aprovado, mas ainda sem credenciais
+                if (titleElement && result.status && (result.status === 'approved' || result.status === 'paid' || result.status === 'success')) {
+                    titleElement.textContent = 'Pagamento Aprovado. Gerando Acesso...';
+                    if(messageElement) messageElement.textContent = 'Aguardando credenciais do Hotspot...';
+                }
+
+                // Recarrega se APROVADO E CREDENCIAIS EXISTIREM
                 if (result.success && (result.status === 'approved' || result.status === 'paid' || result.status === 'success') && result.credentials) {
                     clearInterval(checkInterval);
-                    // Recarregar a página para buscar as novas credenciais E as variáveis do Mikrotik do DB
                     window.location.reload(); 
                 }
             } catch (error) {
                 console.error('Erro ao verificar:', error);
             }
-        }, 3000); // Verifica a cada 3 segundos
+        }, 3000); 
         <?php endif; ?>
     </script>
 </body>

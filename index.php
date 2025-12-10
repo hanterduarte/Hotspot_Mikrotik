@@ -30,6 +30,7 @@ $plans = $stmt->fetchAll();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WiFi Barato - Escolha seu Plano</title>
+    <link rel="icon" type="image/png" href="img/favicon_a.png">
     <style>
         * {
             margin: 0;
@@ -360,6 +361,27 @@ $plans = $stmt->fetchAll();
         }
         /* --- FIM CSS DA SEÇÃO DE CONTATO --- */
 
+        /* INÍCIO AJUSTE PARA LOGO EMPILHADA NO RODAPÉ */
+        .footer {
+            /* display: flex; REMOVIDO para permitir empilhamento */
+            /* justify-content: center; REMOVIDO */
+            /* align-items: center; REMOVIDO */
+            /* gap: 10px; REMOVIDO */
+            text-align: center; /* Centraliza o texto e os elementos de bloco */
+            color: white;
+            margin: 40px 0 20px 0;
+            opacity: 0.8;
+            font-size: 0.9em;
+        }
+
+        .footer-logo {
+            width: 150px;
+            height: auto;
+            display: block; /* Essencial para centralizar a imagem com margem auto */
+            margin: 0 auto 5px auto; /* Centraliza e adiciona 5px de espaço abaixo da logo */
+        }
+        /* FIM AJUSTE PARA LOGO EMPILHADA NO RODAPÉ */
+
         .footer {
             text-align: center;
             color: white;
@@ -521,7 +543,7 @@ $plans = $stmt->fetchAll();
 <body>
     <div class="container">
         <div class="header">
-            <img src="logo.png" alt="Logo WiFi Barato" class="logo">
+            <img src="img/wifi-barato-logo.png" alt="Logo WiFi Barato" class="logo">
         </div>
 
         <div class="intro-box">
@@ -542,7 +564,7 @@ $plans = $stmt->fetchAll();
 <input type="hidden" name="popup" value="true">
 <button type="submit" class="login-btn">Entrar</button>
 </form>
-            <p class="login-message">Seus dados serão autenticados pelo sistema pfSense.</p>
+            <p class="login-message">Seus dados serão autenticados pelo sistema MikroTik RouterOS.</p>
         </div>
         <div id="plansSection" class="plans-section">
             <div class="plans-title">
@@ -619,7 +641,9 @@ $plans = $stmt->fetchAll();
             </div>
             </div>
         <div class="footer">
-            &copy; 2025 WiFi Barato. Todos os direitos reservados.
+            <img src="img/wiguest_logo_small_a.png" alt="Logo WiFi Barato" class="footer-logo">
+            <span> Wi Guest Portal &copy; 2025 Todos os direitos reservados. - Sistema para Gestão de Acessos. </span>
+        </div>
         </div>
     </div>
     

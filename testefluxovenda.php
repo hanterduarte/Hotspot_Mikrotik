@@ -31,13 +31,22 @@ $mikrotikSimData = [
 // ==========================================================================
 
 // --------------------------------------------------------------------------
-// FUNÇÃO SANITIZE (Omissa aqui, assumindo que está em config.php ou definida)
-// Se 'sanitizeInput' não estiver definida, adicione-a aqui:
-/*
-function sanitizeInput($data) {
-    return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
+// MOCK para Funções Ausentes (logEvent e jsonResponse, necessárias para o webhook)
+// --------------------------------------------------------------------------
+if (!function_exists('logEvent')) {
+    function logEvent($type, $message) {
+        // No debug, apenas loga na tela se for um erro
+        if (str_contains($type, 'error') || str_contains($type, 'exception')) {
+             $_SESSION['transacao_final']['detailed_error'] = ($GLOBALS['transacaoFinal']['detailed_error'] ?? '') . "\nLOG ($type): " . $message;
+        }
+    }
 }
-*/
+
+if (!function_exists('jsonResponse')) {
+    function jsonResponse($success, $msg) {
+        // No debug, não faz nada para evitar quebras de cabeçalho
+    }
+}
 // --------------------------------------------------------------------------
 
 // --------------------------------------------------------------------------
@@ -161,21 +170,50 @@ if (isset($_POST['simulate_checkout']) && $step == 3) {
 
 // --------------------------------------------------------------------------
 // ETAPA 4: Simulação do Webhook (`webhook_infinitypay.php`)
+// **AJUSTADO PARA INCLUIR E EXECUTAR A LÓGICA DO WEBHOOK REAL**
 // --------------------------------------------------------------------------
 if (isset($_POST['process_webhook']) && $step == 4 && $fictitiousPayload) {
+    
+    // 1. Configurar o ambiente para simular a requisição POST do Webhook
+    // O webhook_infinitypay.php lê de 'php://input'. Iremos mockar a leitura.
+    
+    // Salva o payload simulado para ser lido pelo include
+    $_MOCK_WEBHOOK_PAYLOAD = json_encode($fictitiousPayload);
+
+    // Substitui temporariamente a função file_get_contents para retornar o payload mockado
+    // Nota: Isso é um mock avançado. Para simplificar, faremos uma injeção de variável.
+    
+    // Injeção de dados: O webhook precisa de $data. Vamos injetar os dados diretamente.
+    $data = $fictitiousPayload; 
+    
+    // Definindo variáveis que o webhook espera.
+    $transactionId = intval($data['order_nsu']);
+    $invoiceSlug = sanitizeInput($data['invoice_slug']);
+    $transactionNsu = sanitizeInput($data['transaction_nsu'] ?? '');
+    $captureMethod = sanitizeInput($data['capture_method'] ?? 'infinitepay_checkout');
+    $paymentStatus = sanitizeInput(strtolower($data['status'] ?? 'paid')); 
+
+    // A lógica de conexão com o banco de dados ($db) já está pronta.
+    
+    // 2. Executar a lógica do webhook diretamente
     try {
-        $db->beginTransaction();
         
-        // 4a. Buscar transação APENAS da tabela transactions
-        $stmt_trans = $db->prepare("SELECT * FROM transactions WHERE id = ? AND payment_status = 'pending'");
-        $stmt_trans->execute([$transactionId]);
-        $transaction = $stmt_trans->fetch();
+        $db->beginTransaction();
+
+        // 3. Buscar transação APENAS da tabela transactions
+        $stmt = $db->prepare("SELECT * FROM transactions WHERE id = ? AND payment_status = 'pending'");
+        $stmt->execute([$transactionId]);
+        $transaction = $stmt->fetch();
 
         if (!$transaction) {
-            throw new Exception("Transação #{$transactionId} não encontrada ou status incorreto.");
+            throw new Exception("Transação já processada ou inválida.");
         }
 
-        // 4b. Buscar detalhes do plano (mikrotik_profile e duration_seconds)
+        if (empty($transaction['customer_id']) || !is_numeric($transaction['customer_id'])) {
+            throw new Exception("Erro interno: ID do cliente ausente na transação.");
+        }
+
+        // 4. Buscar detalhes do plano (mikrotik_profile e duration_seconds)
         $stmt_plan = $db->prepare("SELECT mikrotik_profile, duration_seconds FROM plans WHERE id = ?"); 
         $stmt_plan->execute([$transaction['plan_id']]);
         $plan = $stmt_plan->fetch();
@@ -184,36 +222,35 @@ if (isset($_POST['process_webhook']) && $step == 4 && $fictitiousPayload) {
             throw new Exception("Plano ID {$transaction['plan_id']} não encontrado.");
         }
         
-        // 4c. Simular Ativação Cliente (Criação de Usuário Hotspot)
+        // 5. ATIVAR CLIENTE (Criação de Usuário Hotspot no Mikrotik) - CHAMA A FUNÇÃO REAL
         $mt = new MikrotikAPI();
-        // A função provisionHotspotUser está sendo mockada para retornar um sucesso
-        $provisionResult = [
-            'success' => true,
-            'username' => 'user' . $transactionId,
-            'password' => 'pass' . $transactionId,
-            'mikrotik_profile' => $plan['mikrotik_profile'],
-            'message' => 'Usuário provisionado (simulado).'
-        ];
-
+        
+        // Armazena os parâmetros antes da chamada
         $_SESSION['mikrotik_call_params'] = [
             'plan_id' => $transaction['plan_id'],
             'client_ip' => $transaction['client_ip']
         ];
+        
+        // 🚨 ESTA É A CHAMADA REAL QUE VOCÊ SOLICITOU
+        $provisionResult = $mt->provisionHotspotUser(
+            $transaction['plan_id'], 
+            $transaction['client_ip'] 
+        );
+        
         $_SESSION['mikrotik_call_result'] = $provisionResult;
 
         if (!$provisionResult['success']) {
-            throw new Exception("Falha ao provisionar usuário no Mikrotik (simulado).");
+            throw new Exception("Falha ao provisionar usuário no Mikrotik. Erro: " . $provisionResult['message']);
         }
         
         // ======================================================================
-        // CÁLCULO E INSERÇÃO DE CREDENCIAIS (LÓGICA CORRIGIDA DO WEBHOOK)
+        // CÁLCULO E INSERÇÃO DE CREDENCIAIS (LÓGICA DO WEBHOOK)
         // ======================================================================
         $durationSeconds = intval($plan['duration_seconds']);
         $hasDuration = $durationSeconds > 0;
 
         $expiresAt = NULL;
         if ($hasDuration) {
-            // CÁLCULO IDÊNTICO AO QUE ESTÁ NO webhook_infinitypay.php CORRIGIDO
             $expiresAt = date('Y-m-d H:i:s', time() + $durationSeconds);
         }
 
@@ -230,12 +267,12 @@ if (isset($_POST['process_webhook']) && $step == 4 && $fictitiousPayload) {
             $expiresAt // <-- A data já calculada ou NULL
         ];
         
-        // 4d. Salvar CREDENCIAIS no banco de dados (Tabela hotspot_users)
+        // 6b. Salvar CREDENCIAIS no banco de dados (Tabela hotspot_users)
         $insertSql = "INSERT INTO hotspot_users ({$insertColumns}) VALUES ({$insertPlaceholders})";
         $stmt = $db->prepare($insertSql);
         $stmt->execute($params);
-
-        // 4e. ATUALIZAR STATUS DA TRANSAÇÃO
+        
+        // 6. ATUALIZAR STATUS DA TRANSAÇÃO (LÓGICA DO WEBHOOK)
         $stmt = $db->prepare("
             UPDATE transactions 
             SET payment_status = 'approved',
@@ -249,14 +286,14 @@ if (isset($_POST['process_webhook']) && $step == 4 && $fictitiousPayload) {
         ");
         
         $stmt->execute([
-            $fictitiousPayload['transaction_nsu'],
-            $fictitiousPayload['capture_method'],
-            $fictitiousPayload['invoice_slug'],
+            $transactionNsu,
+            $captureMethod,
+            $invoiceSlug,
             $transactionId
         ]);
         
         $db->commit();
-        $message = "Webhook SUCESSO! Usuário **{$provisionResult['username']}** criado no `hotspot_users`.";
+        $message = "Webhook SUCESSO! Usuário **{$provisionResult['username']}** criado. **A chamada real do Mikrotik foi executada.**";
         
         // Buscar dados finais para display
         $stmt_final = $db->prepare("SELECT * FROM hotspot_users WHERE transaction_id = ?");
@@ -265,8 +302,10 @@ if (isset($_POST['process_webhook']) && $step == 4 && $fictitiousPayload) {
 
     } catch (Exception $e) {
         if ($db->inTransaction()) { $db->rollBack(); }
+        // Se a exceção ocorreu, registra o erro no log simulado para exibir na tela.
+        logEvent('webhook_exception_manual', "Exceção no processamento do webhook: {$e->getMessage()} | TX: $transactionId");
         $message = "Webhook FALHOU! Erro: " . $e->getMessage();
-        $_SESSION['transacao_final'] = ['detailed_error' => $e->getMessage()];
+        // A transacaoFinal já deve ter o erro detalhado pelo logEvent mockado.
     }
 }
 // --------------------------------------------------------------------------
@@ -385,23 +424,27 @@ if (isset($_POST['reset'])) {
         </div>
 
         <div class="step <?php echo $step == 4 ? 'active-step' : ''; ?>">
-            <h2>4. Processamento do Webhook (`webhook_infinitypay.php`)</h2>
-            <p>Ação real que cria o usuário no `hotspot_users` (e chamaria o Mikrotik).</p>
+            <h2>4. Processamento do Webhook (`webhook_infinitypay.php`) - CHAMADA REAL DO MIKROTIK!</h2>
+            <p>Ação real que cria o usuário no `hotspot_users` **e chama a função `provisionHotspotUser` real da sua `MikrotikAPI`**.</p>
             <form method="post">
-                <button type="submit" name="process_webhook" <?php echo $step != 4 ? 'disabled' : ''; ?>>Processar Webhook</button>
+                <button type="submit" name="process_webhook" <?php echo $step != 4 ? 'disabled' : ''; ?>>Processar Webhook (Chamada Mikrotik Real)</button>
             </form>
 
             <?php if (!empty($mikrotikCallResult)): ?>
                 <hr>
-                <h3>Resultado da Simulação do Mikrotik</h3>
+                <h3>Resultado da Chamada Real ao Mikrotik</h3>
                 <p>Usuário Hotspot: **<?php echo htmlspecialchars($mikrotikCallResult['username'] ?? 'N/A'); ?>**</p>
                 <p>Senha: **<?php echo htmlspecialchars($mikrotikCallResult['password'] ?? 'N/A'); ?>**</p>
+                <p style="font-weight: bold; color: <?php echo $mikrotikCallResult['success'] ? 'green' : 'red'; ?>;">
+                    Status: <?php echo $mikrotikCallResult['success'] ? 'SUCESSO' : 'FALHA'; ?>
+                </p>
+                <pre style="white-space: pre-wrap; word-wrap: break-word;"><?php echo htmlspecialchars($mikrotikCallResult['message'] ?? 'Nenhuma mensagem.'); ?></pre>
             <?php endif; ?>
             
             <?php if ($transacaoFinal['detailed_error'] ?? false): ?>
-                 <h3 style="color: red;">Log de Erro Detalhado (Tabela `logs`)</h3>
+                 <h3 style="color: red;">Log de Erro Detalhado (Webhook Exception)</h3>
                  <pre style="background: #ffeded; border: 1px solid #ffaaaa;"><?php echo htmlspecialchars($transacaoFinal['detailed_error']); ?></pre>
-                 <p>Este é o erro **exato** que o processo logou.</p>
+                 <p>Este é o erro **exato** que o processo logou ao falhar.</p>
             <?php endif; ?>
         </div>
         
