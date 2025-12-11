@@ -20,10 +20,13 @@ $router->add('POST', 'payment/process', 'PaymentController@process'); // Rota pa
 $router->add('POST', 'webhook/infinitypay', 'WebhookController@handleInfinityPay'); // Rota para o webhook
 $router->add('GET', 'payment/success', 'PaymentController@success'); // Rota para a página de sucesso
 
-// --- Rota de Teste ---
-// Acessar /test/sales-flow para simular uma venda completa.
-// Recomenda-se remover ou comentar esta linha em produção.
-$router->add('GET', 'test/sales-flow', 'TestController@runSalesFlowTest');
+// --- Rotas de Teste Interativo ---
+// Acessar /test para iniciar o simulador de compra.
+// Recomenda-se remover ou comentar estas linhas em produção.
+$router->add('GET', 'test', 'TestController@index');
+$router->add('POST', 'test/create-pending', 'TestController@createPendingTransaction');
+$router->add('GET', 'test/simulate', 'TestController@simulate');
+$router->add('GET', 'test/simulate-webhook', 'TestController@runWebhookSimulation');
 
 // Captura a rota da requisição
 $uri = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/');

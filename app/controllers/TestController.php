@@ -2,97 +2,124 @@
 // app/controllers/TestController.php
 
 require_once ROOT_PATH . '/app/controllers/BaseController.php';
-require_once ROOT_PATH . '/app/models/Transaction.php';
-require_once ROOT_PATH . '/app/models/Customer.php';
 require_once ROOT_PATH . '/app/models/Plan.php';
+require_once ROOT_PATH . '/app/models/Customer.php';
+require_once ROOT_PATH . '/app/models/Transaction.php';
 require_once ROOT_PATH . '/app/models/HotspotUser.php';
 require_once ROOT_PATH . '/app/services/MikrotikAPI.php';
 
 class TestController extends BaseController {
 
     /**
-     * Simula o fluxo de venda completo para fins de teste.
+     * Passo 1: Exibe o formulário para iniciar o teste.
      */
-    public function runSalesFlowTest() {
-        header('Content-Type: text/html; charset=utf-8');
-        echo "<h1>Iniciando Teste de Fluxo de Venda</h1>";
-        echo "<pre>";
+    public function index() {
+        $planModel = new Plan();
+        $plans = $planModel->getActivePlans();
+        $this->view('test/index', ['plans' => $plans]);
+    }
 
+    /**
+     * Passo 2: Cria uma transação pendente e avança para a simulação do webhook.
+     */
+    public function createPendingTransaction() {
         try {
-            // --- 1. Dados de Teste ---
-            $testPlanId = 1; // ID do plano a ser testado
-            $testCustomerData = [
-                'name' => 'Cliente Teste',
-                'email' => 'teste@example.com', // E-mail para onde a notificação será enviada
-                'phone' => '99999999999',
-                'cpf' => '00000000000'
+            // Pega os dados do formulário
+            $planId = $_POST['plan_id'];
+            $customerData = [
+                'name' => $_POST['name'],
+                'email' => $_POST['email'],
+                'phone' => $_POST['phone'],
+                'cpf' => $_POST['cpf']
             ];
-            echo "-> Usando Plano ID: {$testPlanId} e Cliente: {$testCustomerData['email']}\n";
 
-            // --- 2. Instanciar Modelos ---
+            // Instancia os modelos
             $planModel = new Plan();
             $customerModel = new Customer();
             $transactionModel = new Transaction();
+
+            // Valida o plano
+            $plan = $planModel->findById($planId);
+            if (!$plan) {
+                throw new Exception("Plano não encontrado.");
+            }
+
+            // Cria/obtém o cliente
+            $customerId = $customerModel->createOrGet($customerData);
+
+            // Cria a transação com status 'pending'
+            $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price'], 'test_gateway');
+
+            // Redireciona para a página de simulação do webhook
+            header('Location: /test/simulate?transaction_id=' . $transactionId);
+            exit;
+
+        } catch (Exception $e) {
+            // Em caso de erro, exibe a falha
+            $this->view('payment/failure', ['message' => 'Erro ao criar transação de teste: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Passo 3: Exibe a página de simulação.
+     */
+    public function simulate() {
+        $transactionId = (int)$_GET['transaction_id'];
+        $this->view('test/simulate', ['transactionId' => $transactionId]);
+    }
+
+    /**
+     * Passo 4: Executa a simulação do webhook de pagamento aprovado.
+     */
+    public function runWebhookSimulation() {
+        $transactionId = (int)$_GET['transaction_id'];
+
+        if (!$transactionId) {
+            $this->view('payment/failure', ['message' => 'ID da transação para simulação não encontrado.']);
+            return;
+        }
+
+        try {
+            // Simula a lógica do WebhookController
+            $transactionModel = new Transaction();
             $hotspotUserModel = new HotspotUser();
 
-            // --- 3. Buscar Dados do Plano e Cliente ---
-            $plan = $planModel->findById($testPlanId);
-            if (!$plan) {
-                throw new Exception("Plano de teste com ID {$testPlanId} não encontrado.");
+            $existingTransaction = $transactionModel->findById($transactionId);
+            if (!$existingTransaction) {
+                throw new Exception("Transação de teste não encontrada.");
             }
-            echo "-> Plano encontrado: " . htmlspecialchars($plan['name']) . "\n";
 
-            $customerId = $customerModel->createOrGet($testCustomerData);
-            echo "-> ID do Cliente (criado/obtido): {$customerId}\n";
+            // Atualiza a transação para 'approved'
+            $transactionModel->updatePaymentDetails($transactionId, 'sim_' . time(), 'approved', 'Payload de simulação');
 
-            // --- 4. Criar uma Transação de Teste ---
-            $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price'], 'test_gateway');
-            $transactionModel->updatePaymentDetails($transactionId, 'test_' . time(), 'approved', 'Payload de teste');
-            echo "-> Transação de teste criada com ID: {$transactionId}\n";
+            $planModel = new Plan();
+            $plan = $planModel->findById($existingTransaction['plan_id']);
 
-            // --- 5. Provisionar Usuário no Mikrotik ---
-            echo "-> Tentando provisionar usuário no Mikrotik...\n";
+            $customerModel = new Customer();
+            $customer = $customerModel->findById($existingTransaction['customer_id']);
+
+            // Provisiona o usuário no Mikrotik
             $mikrotik = new MikrotikAPI();
             $provisionResult = $mikrotik->provisionHotspotUser($plan['id'], $transactionId);
 
             if (!$provisionResult['success']) {
-                throw new Exception("Falha ao provisionar usuário no Mikrotik: " . $provisionResult['message']);
+                throw new Exception("Falha na simulação de provisionamento Mikrotik: " . $provisionResult['message']);
             }
 
+            // Salva o usuário no banco
             $username = $provisionResult['username'];
             $password = $provisionResult['password'];
-            echo "-> Usuário provisionado no Mikrotik com sucesso!\n";
-            echo "   - Usuário: <strong>{$username}</strong>\n";
-            echo "   - Senha:   <strong>{$password}</strong>\n";
-
-            // --- 6. Salvar Usuário no Banco de Dados ---
             $expiresAt = date('Y-m-d H:i:s', time() + $plan['duration_seconds']);
-            $hotspotUserModel->create($transactionId, $customerId, $plan['id'], $username, $password, $expiresAt);
-            echo "-> Credenciais salvas no banco de dados local.\n";
+            $hotspotUserModel->create($transactionId, $customer['id'], $plan['id'], $username, $password, $expiresAt);
 
-            // --- 7. Enviar E-mail de Teste ---
-            echo "-> Tentando enviar e-mail para {$testCustomerData['email']}...\n";
-            $emailSent = sendHotspotCredentialsEmail(
-                $testCustomerData['email'],
-                $username,
-                $password,
-                $expiresAt,
-                $plan['name']
-            );
+            // Envia o e-mail
+            sendHotspotCredentialsEmail($customer['email'], $username, $password, $expiresAt, $plan['name']);
 
-            if ($emailSent) {
-                echo "-> E-mail enviado com sucesso!\n";
-            } else {
-                echo "-> Falha ao enviar e-mail. Verifique as configurações e o log de eventos.\n";
-            }
-
-            echo "\n</pre>";
-            echo "<h2>✅ Teste de Fluxo de Venda Concluído com Sucesso!</h2>";
+            // Renderiza a página de resultado com o iframe
+            $this->view('test/result', ['transactionId' => $transactionId]);
 
         } catch (Exception $e) {
-            echo "\n</pre>";
-            echo "<h2>❌ ERRO NO TESTE:</h2>";
-            echo "<p style='color: red; font-weight: bold;'>" . htmlspecialchars($e->getMessage()) . "</p>";
+            $this->view('payment/failure', ['message' => 'Erro durante a simulação do webhook: ' . $e->getMessage()]);
         }
     }
 }
