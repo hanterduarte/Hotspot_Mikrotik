@@ -19,41 +19,11 @@ date_default_timezone_set(TIMEZONE);
 ini_set('session.cookie_httponly', 1);
 session_start();
 
-// Classe de Conexão com Banco de Dados
-class Database {
-    private static $instance = null;
-    private $conn;
-    
-    private function __construct() {
-        try {
-            $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
-            $this->conn = new PDO($dsn, DB_USER, DB_PASS);
-            $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-            $this->conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        } catch(PDOException $e) {
-            die("Erro de conexão: " . $e->getMessage());
-        }
-    }
-    
-    public static function getInstance() {
-        if (self::$instance === null) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
-    
-    public function getConnection() {
-        return $this->conn;
-    }
-    
-    // Prevenir clonagem
-    private function __clone() {}
-    
-    // Prevenir unserialize
-    public function __wakeup() {
-        throw new Exception("Cannot unserialize singleton");
-    }
-}
+// Carrega a classe de conexão com o banco de dados
+require_once ROOT_PATH . '/app/models/Database.php';
+
+// Carrega funções auxiliares
+require_once ROOT_PATH . '/app/helpers.php';
 
 // Função para obter configurações do banco
 function getSetting($key, $default = null) {

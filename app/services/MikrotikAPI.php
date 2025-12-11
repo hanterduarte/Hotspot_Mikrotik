@@ -1,8 +1,7 @@
 <?php
 // MikrotikAPI.php - VERSÃO FINAL COM LÓGICA DE PROVISIONAMENTO
 
-require_once 'config.php'; 
-require_once 'routeros_api.class.php';
+require_once ROOT_PATH . '/lib/routeros_api.class.php';
 
 class MikrotikAPI {
     private $host;
