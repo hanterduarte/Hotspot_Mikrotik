@@ -21,6 +21,14 @@ class HomeController extends BaseController {
             'clientMac' => isset($_GET['mac']) ? $_GET['mac'] : '',
         ];
 
+        // Se os parâmetros do portal cativo estiverem presentes, salva na sessão
+        if (!empty($mikrotikParams['linkLogin'])) {
+            $_SESSION['mikrotik_links'] = [
+                'linkLogin' => $mikrotikParams['linkLogin'],
+                'linkOrig' => $mikrotikParams['linkOrig']
+            ];
+        }
+
         // Cria uma instância do modelo Plan
         $planModel = new Plan();
 

@@ -99,21 +99,34 @@ class PaymentController extends BaseController {
         $transactionId = isset($_GET['external_reference']) ? (int)$_GET['external_reference'] : 0;
 
         if (!$transactionId) {
-            // Lida com o caso em que o ID da transação não é fornecido
             $this->view('payment/failure', ['message' => 'ID da transação não encontrado.']);
             return;
         }
 
-        // Busca as credenciais do usuário do hotspot
+        // Busca as credenciais do usuário
         $hotspotUserModel = new HotspotUser();
         $hotspotUser = $hotspotUserModel->findByTransactionId($transactionId);
 
         if ($hotspotUser) {
-            // Se o usuário foi encontrado, exibe a página de sucesso com as credenciais
-            $this->view('payment/success', ['user' => $hotspotUser]);
+            // Busca os detalhes do plano
+            $planModel = new Plan();
+            $plan = $planModel->findById($hotspotUser['plan_id']);
+
+            // Recupera os links do Mikrotik da sessão
+            $mikrotikLinks = $_SESSION['mikrotik_links'] ?? ['linkLogin' => '#', 'linkOrig' => '/'];
+
+            // Prepara os dados para a view
+            $data = [
+                'user' => $hotspotUser,
+                'plan' => $plan,
+                'mikrotik' => $mikrotikLinks
+            ];
+
+            // Exibe a página de sucesso com todos os dados
+            $this->view('payment/success', $data);
         } else {
-            // Se o usuário ainda não foi criado (webhook pode estar atrasado),
-            // exibe uma mensagem de pendente.
+            // Se o usuário ainda não foi criado (webhook pode estar atrasado), exibe uma mensagem de pendente.
+            // A página de pendente irá se auto-atualizar.
             $this->view('payment/pending', ['message' => 'Seu pagamento foi aprovado! Estamos gerando suas credenciais.']);
         }
     }
