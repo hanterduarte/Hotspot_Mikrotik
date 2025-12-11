@@ -50,6 +50,15 @@ class TestController extends BaseController {
             // Cria a transação com status 'pending'
             $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price'], 'test_gateway');
 
+            // Salva os parâmetros de simulação na sessão para o próximo passo
+            $_SESSION['test_simulation_params'] = [
+                'client_ip' => $_POST['client_ip'],
+                'client_mac' => $_POST['client_mac'],
+                'link_orig' => $_POST['link_orig'],
+                'chap_id' => $_POST['chap_id'],
+                'chap_challenge' => $_POST['chap_challenge']
+            ];
+
             // Redireciona para a página de simulação do webhook
             header('Location: /test/simulate?transaction_id=' . $transactionId);
             exit;
@@ -98,9 +107,14 @@ class TestController extends BaseController {
             $customerModel = new Customer();
             $customer = $customerModel->findById($existingTransaction['customer_id']);
 
-            // Provisiona o usuário no Mikrotik
+            // Recupera os parâmetros de simulação da sessão
+            $simParams = $_SESSION['test_simulation_params'] ?? [];
+            $clientIp = $simParams['client_ip'] ?? '';
+            $clientMac = $simParams['client_mac'] ?? '';
+
+            // Provisiona o usuário no Mikrotik usando os dados simulados
             $mikrotik = new MikrotikAPI();
-            $provisionResult = $mikrotik->provisionHotspotUser($plan['id'], $transactionId);
+            $provisionResult = $mikrotik->provisionHotspotUser($plan['id'], $transactionId, $clientIp, $clientMac);
 
             if (!$provisionResult['success']) {
                 throw new Exception("Falha na simulação de provisionamento Mikrotik: " . $provisionResult['message']);
@@ -115,8 +129,16 @@ class TestController extends BaseController {
             // Envia o e-mail
             sendHotspotCredentialsEmail($customer['email'], $username, $password, $expiresAt, $plan['name']);
 
+            // Prepara os dados para a página de resultado
+            $data = [
+                'transactionId' => $transactionId,
+                'link_orig' => $simParams['link_orig'] ?? '',
+                 // O link-login-only não é gerado de verdade, então criamos um fictício
+                'link_login_only' => '/test/fake-login-page'
+            ];
+
             // Renderiza a página de resultado com o iframe
-            $this->view('test/result', ['transactionId' => $transactionId]);
+            $this->view('test/result', $data);
 
         } catch (Exception $e) {
             $this->view('payment/failure', ['message' => 'Erro durante a simulação do webhook: ' . $e->getMessage()]);

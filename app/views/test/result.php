@@ -22,7 +22,7 @@
         <p>Abaixo está a página de sucesso real que o cliente veria, exibida dentro de um frame para teste.</p>
 
         <div class="iframe-container">
-            <iframe src="/payment/success?external_reference=<?php echo htmlspecialchars($transactionId); ?>"></iframe>
+            <iframe src="/payment/success?external_reference=<?php echo htmlspecialchars($transactionId); ?>&link-login-only=<?php echo urlencode($link_login_only); ?>&link-orig=<?php echo urlencode($link_orig); ?>"></iframe>
         </div>
 
         <div class="controls">
