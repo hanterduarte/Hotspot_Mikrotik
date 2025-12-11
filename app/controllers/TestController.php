@@ -7,6 +7,7 @@ require_once ROOT_PATH . '/app/models/Customer.php';
 require_once ROOT_PATH . '/app/models/Transaction.php';
 require_once ROOT_PATH . '/app/models/HotspotUser.php';
 require_once ROOT_PATH . '/app/services/MikrotikAPI.php';
+require_once ROOT_PATH . '/app/controllers/WebhookController.php';
 
 class TestController extends BaseController {
 
@@ -89,51 +90,24 @@ class TestController extends BaseController {
         }
 
         try {
-            // Simula a lógica do WebhookController
-            $transactionModel = new Transaction();
-            $hotspotUserModel = new HotspotUser();
+            // Constrói um payload de webhook fictício
+            $simulatedPayload = json_encode([
+                'order_nsu' => $transactionId,
+                'status' => 'PAID', // Usa o status correto
+                'transaction_id' => 'sim_' . time()
+            ]);
 
-            $existingTransaction = $transactionModel->findById($transactionId);
-            if (!$existingTransaction) {
-                throw new Exception("Transação de teste não encontrada.");
-            }
+            // Cria uma instância do WebhookController e chama a lógica de processamento
+            $webhookController = new WebhookController();
+            $webhookController->processWebhookPayload($simulatedPayload);
 
-            // Atualiza a transação para 'approved'
-            $transactionModel->updatePaymentDetails($transactionId, 'sim_' . time(), 'approved', 'Payload de simulação');
-
-            $planModel = new Plan();
-            $plan = $planModel->findById($existingTransaction['plan_id']);
-
-            $customerModel = new Customer();
-            $customer = $customerModel->findById($existingTransaction['customer_id']);
-
-            // Recupera os parâmetros de simulação da sessão
+            // Recupera os parâmetros de simulação da sessão para a página de resultado
             $simParams = $_SESSION['test_simulation_params'] ?? [];
-            $clientIp = $simParams['client_ip'] ?? '';
-            $clientMac = $simParams['client_mac'] ?? '';
-
-            // Provisiona o usuário no Mikrotik usando os dados simulados
-            $mikrotik = new MikrotikAPI();
-            $provisionResult = $mikrotik->provisionHotspotUser($plan['id'], $transactionId, $clientIp, $clientMac);
-
-            if (!$provisionResult['success']) {
-                throw new Exception("Falha na simulação de provisionamento Mikrotik: " . $provisionResult['message']);
-            }
-
-            // Salva o usuário no banco
-            $username = $provisionResult['username'];
-            $password = $provisionResult['password'];
-            $expiresAt = date('Y-m-d H:i:s', time() + $plan['duration_seconds']);
-            $hotspotUserModel->create($transactionId, $customer['id'], $plan['id'], $username, $password, $expiresAt);
-
-            // Envia o e-mail
-            sendHotspotCredentialsEmail($customer['email'], $username, $password, $expiresAt, $plan['name']);
 
             // Prepara os dados para a página de resultado
             $data = [
                 'transactionId' => $transactionId,
                 'link_orig' => $simParams['link_orig'] ?? '',
-                 // O link-login-only não é gerado de verdade, então criamos um fictício
                 'link_login_only' => '/test/fake-login-page'
             ];
 
