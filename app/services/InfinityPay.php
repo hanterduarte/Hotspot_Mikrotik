@@ -69,10 +69,10 @@ class InfinityPay {
         $orderNsu = strval($transactionId); 
         
         // A redirect_url volta para sua página de sucesso, levando a referência interna
-        $redirectUrl = BASE_URL . "/payment_success.php?external_reference=" . $orderNsu; 
+        $redirectUrl = BASE_URL . "/payment/success?external_reference=" . $orderNsu;
         
         // A webhook_url notifica o seu sistema sobre a mudança de status
-        $webhookUrl = BASE_URL . "/webhook_infinitypay.php"; 
+        $webhookUrl = BASE_URL . "/webhook/infinitypay";
 
         $data = [
             "handle" => $this->handle,
