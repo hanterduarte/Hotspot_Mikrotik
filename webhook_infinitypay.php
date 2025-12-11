@@ -70,8 +70,10 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         // 5. ATIVAR CLIENTE (Criação de Usuário Hotspot no Mikrotik)
         $mt = new MikrotikAPI();
         $provisionResult = $mt->provisionHotspotUser(
-            $transaction['plan_id'], 
-            $transaction['client_ip'] 
+            $transaction['plan_id'],
+            $transactionId,  // ID da venda/transação
+            $transaction['client_ip'] ?? '',
+            $transaction['client_mac'] ?? ''
         );
 
         if (!$provisionResult['success']) {

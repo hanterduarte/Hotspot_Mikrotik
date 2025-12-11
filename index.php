@@ -30,6 +30,10 @@ $plans = $stmt->fetchAll();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WiFi Barato - Escolha seu Plano</title>
+<<<<<<< Updated upstream
+=======
+    <link rel="icon" type="image/png" href="img/favicon.png">
+>>>>>>> Stashed changes
     <style>
         * {
             margin: 0;
@@ -619,7 +623,13 @@ $plans = $stmt->fetchAll();
             </div>
             </div>
         <div class="footer">
+<<<<<<< Updated upstream
             &copy; 2025 WiFi Barato. Todos os direitos reservados.
+=======
+            <img src="img/wiguest_logo_small.png" alt="Logo Wi Guest Portal" class="footer-logo">
+            <span> Wi Guest Portal &copy; 2025 Todos os direitos reservados. - Sistema para Gestão de Acessos. </span>
+        </div>
+>>>>>>> Stashed changes
         </div>
     </div>
     

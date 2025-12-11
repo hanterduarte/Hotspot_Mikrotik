@@ -51,9 +51,9 @@ class MikrotikAPI {
     }
 
     // ======================================================================
-    // PROVISIONAMENTO DE USUÁRIO HOTSPOT
+    // PROVISIONAMENTO DE USUÁRIO HOTSPOT (ATUALIZADO)
     // ======================================================================
-    public function provisionHotspotUser(int $planId, string $clientIp): array {
+    public function provisionHotspotUser(int $planId, int $transactionId, string $clientIp = '', string $clientMac = ''): array {
         // 1. Conecta ao Mikrotik (Se ainda não estiver conectado)
         if (!$this->connect()) {
             return ['success' => false, 'message' => $this->getError() ?? 'Falha na conexão ao MikroTik.'];
@@ -61,7 +61,6 @@ class MikrotikAPI {
 
         // 2. Busca detalhes do plano no DB
         $db = Database::getInstance()->getConnection();
-        // CORREÇÃO: Usando 'mikrotik_profile' e 'duration_seconds' (finalmente resolvendo o erro)
         $stmt_plan = $db->prepare("SELECT mikrotik_profile, duration_seconds FROM plans WHERE id = ?"); 
         $stmt_plan->execute([$planId]);
         $plan = $stmt_plan->fetch();
@@ -81,13 +80,23 @@ class MikrotikAPI {
         $username = 'u' . substr(md5(uniqid(mt_rand(), true)), 0, 8);
         $password = substr(md5(uniqid(mt_rand(), true)), 0, 6);
 
-        // 4. Adicionar Usuário Hotspot no Mikrotik
+        // 4. Montar o comentário personalizado
+        $comment = "Venda: {$transactionId}";
+        if (!empty($clientIp)) {
+            $comment .= " - Client IP: {$clientIp}";
+        }
+        if (!empty($clientMac)) {
+            $comment .= " - Client MAC: {$clientMac}";
+        }
+
+        // 5. Adicionar Usuário Hotspot no Mikrotik
         $response = $this->api->comm('/ip/hotspot/user/add', [
             'name' => $username,
             'password' => $password,
             'profile' => $profile,
             'limit-uptime' => $uptimeLimit, 
-            'comment' => "Plano ID: $planId - Cliente IP: $clientIp" // IP pode ser vazio
+            'server' => 'hotspot1',
+            'comment' => $comment
         ]);
 
         if (isset($response['!trap'])) {
@@ -101,7 +110,7 @@ class MikrotikAPI {
             'message' => 'Usuário provisionado com sucesso.',
             'username' => $username,
             'password' => $password,
-            'mikrotik_profile' => $profile // Retorna o perfil usado para persistência no DB
+            'mikrotik_profile' => $profile
         ];
     }
     

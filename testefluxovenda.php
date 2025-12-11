@@ -197,8 +197,22 @@ if (isset($_POST['process_webhook']) && $step == 4 && $fictitiousPayload) {
 
         $_SESSION['mikrotik_call_params'] = [
             'plan_id' => $transaction['plan_id'],
-            'client_ip' => $transaction['client_ip']
+            'transaction_id' => $transactionId,
+            'client_ip' => $transaction['client_ip'],
+            'client_mac' => $transaction['client_mac']
         ];
+<<<<<<< Updated upstream
+=======
+        
+        // 🚨 ESTA É A CHAMADA REAL QUE VOCÊ SOLICITOU (ATUALIZADA)
+        $provisionResult = $mt->provisionHotspotUser(
+            $transaction['plan_id'],
+            $transactionId,  // ID da venda/transação
+            $transaction['client_ip'] ?? '',
+            $transaction['client_mac'] ?? ''
+        );
+        
+>>>>>>> Stashed changes
         $_SESSION['mikrotik_call_result'] = $provisionResult;
 
         if (!$provisionResult['success']) {
@@ -256,7 +270,11 @@ if (isset($_POST['process_webhook']) && $step == 4 && $fictitiousPayload) {
         ]);
         
         $db->commit();
+<<<<<<< Updated upstream
         $message = "Webhook SUCESSO! Usuário **{$provisionResult['username']}** criado no `hotspot_users`.";
+=======
+        $message = "Webhook SUCESSO! Usuário **{$provisionResult['username']}** criado. **A chamada real do Mikrotik foi executada com o comentário atualizado.**";
+>>>>>>> Stashed changes
         
         // Buscar dados finais para display
         $stmt_final = $db->prepare("SELECT * FROM hotspot_users WHERE transaction_id = ?");
@@ -390,6 +408,14 @@ if (isset($_POST['reset'])) {
             <form method="post">
                 <button type="submit" name="process_webhook" <?php echo $step != 4 ? 'disabled' : ''; ?>>Processar Webhook</button>
             </form>
+
+            <?php if (!empty($mikrotikCallParams)): ?>
+                <hr>
+                <h3>Parâmetros Enviados ao Mikrotik</h3>
+                <div class="debug-box">
+                    <pre><?php echo htmlspecialchars(json_encode($mikrotikCallParams, JSON_PRETTY_PRINT)); ?></pre>
+                </div>
+            <?php endif; ?>
 
             <?php if (!empty($mikrotikCallResult)): ?>
                 <hr>
