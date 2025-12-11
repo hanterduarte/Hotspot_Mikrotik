@@ -126,8 +126,33 @@ class PaymentController extends BaseController {
             $this->view('payment/success', $data);
         } else {
             // Se o usuário ainda não foi criado (webhook pode estar atrasado), exibe uma mensagem de pendente.
-            // A página de pendente irá se auto-atualizar.
-            $this->view('payment/pending', ['message' => 'Seu pagamento foi aprovado! Estamos gerando suas credenciais.']);
+            $this->view('payment/pending', [
+                'message' => 'Seu pagamento foi aprovado! Estamos gerando suas credenciais.',
+                'transactionId' => $transactionId
+            ]);
+        }
+    }
+
+    /**
+     * Verifica o status de criação do usuário do hotspot para uma transação.
+     * Usado pela página 'pending' para polling AJAX.
+     */
+    public function checkStatus() {
+        header('Content-Type: application/json');
+        $transactionId = isset($_GET['transaction_id']) ? (int)$_GET['transaction_id'] : 0;
+
+        if (!$transactionId) {
+            echo json_encode(['status' => 'erro', 'message' => 'ID da transação não fornecido.']);
+            return;
+        }
+
+        $hotspotUserModel = new HotspotUser();
+        $hotspotUser = $hotspotUserModel->findByTransactionId($transactionId);
+
+        if ($hotspotUser) {
+            echo json_encode(['status' => 'criado']);
+        } else {
+            echo json_encode(['status' => 'pendente']);
         }
     }
 }

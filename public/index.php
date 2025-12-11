@@ -19,6 +19,7 @@ $router->add('GET', '/', 'HomeController@index'); // Rota para a página inicial
 $router->add('POST', 'payment/process', 'PaymentController@process'); // Rota para processar o pagamento
 $router->add('POST', 'webhook/infinitypay', 'WebhookController@handleInfinityPay'); // Rota para o webhook
 $router->add('GET', 'payment/success', 'PaymentController@success'); // Rota para a página de sucesso
+$router->add('GET', 'payment/status', 'PaymentController@checkStatus'); // Rota para o verificador de status AJAX
 
 // --- Rotas de Teste Interativo ---
 // Acessar /test para iniciar o simulador de compra.

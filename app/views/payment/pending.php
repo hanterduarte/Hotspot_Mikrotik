@@ -60,5 +60,26 @@
         <div class="spinner"></div>
         <p><?php echo htmlspecialchars($message ?? 'Seu pagamento foi aprovado! Estamos gerando suas credenciais. Esta página será atualizada automaticamente em instantes.'); ?></p>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const transactionId = <?php echo json_encode($transactionId ?? 0); ?>;
+            if (transactionId > 0) {
+                const interval = setInterval(function() {
+                    fetch('/payment/status?transaction_id=' + transactionId)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'criado') {
+                                clearInterval(interval);
+                                window.location.reload();
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Erro ao verificar status:', error);
+                        });
+                }, 3000); // Verifica a cada 3 segundos
+            }
+        });
+    </script>
 </body>
 </html>
