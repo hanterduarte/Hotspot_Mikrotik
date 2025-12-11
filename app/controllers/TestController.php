@@ -48,17 +48,18 @@ class TestController extends BaseController {
             // Cria/obtém o cliente
             $customerId = $customerModel->createOrGet($customerData);
 
-            // Cria a transação com status 'pending'
-            $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price'], 'test_gateway');
-
-            // Salva os parâmetros de simulação na sessão para o próximo passo
-            $_SESSION['test_simulation_params'] = [
+            // Coleta os dados de simulação
+            $simulationData = [
                 'client_ip' => $_POST['client_ip'],
                 'client_mac' => $_POST['client_mac'],
                 'link_orig' => $_POST['link_orig'],
+                'link_login_only' => $_POST['link_login_only'],
                 'chap_id' => $_POST['chap_id'],
                 'chap_challenge' => $_POST['chap_challenge']
             ];
+
+            // Cria a transação com os dados de simulação
+            $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price'], 'test_gateway', $simulationData);
 
             // Redireciona para a página de simulação do webhook
             header('Location: /test/simulate?transaction_id=' . $transactionId);
@@ -101,14 +102,15 @@ class TestController extends BaseController {
             $webhookController = new WebhookController();
             $webhookController->processWebhookPayload($simulatedPayload);
 
-            // Recupera os parâmetros de simulação da sessão para a página de resultado
-            $simParams = $_SESSION['test_simulation_params'] ?? [];
+            // Recupera a transação atualizada para obter os dados de simulação
+            $transactionModel = new Transaction();
+            $transactionData = $transactionModel->findById($transactionId);
 
             // Prepara os dados para a página de resultado
             $data = [
                 'transactionId' => $transactionId,
-                'link_orig' => $simParams['link_orig'] ?? '',
-                'link_login_only' => '/test/fake-login-page'
+                'link_orig' => $transactionData['sim_link_orig'] ?? '',
+                'link_login_only' => $transactionData['sim_link_login_only'] ?? ''
             ];
 
             // Renderiza a página de resultado com o iframe

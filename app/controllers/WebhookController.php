@@ -65,8 +65,12 @@ class WebhookController extends BaseController {
                     return;
                 }
 
+                // Usa os dados de simulação (se existirem) ou os dados reais
+                $clientIp = $existingTransaction['sim_client_ip'] ?? '';
+                $clientMac = $existingTransaction['sim_client_mac'] ?? '';
+
                 $mikrotik = new MikrotikAPI();
-                $provisionResult = $mikrotik->provisionHotspotUser($plan['id'], $transactionId);
+                $provisionResult = $mikrotik->provisionHotspotUser($plan['id'], $transactionId, $clientIp, $clientMac);
 
                 if ($provisionResult['success']) {
                     $username = $provisionResult['username'];

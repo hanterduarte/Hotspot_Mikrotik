@@ -16,13 +16,28 @@ class Transaction {
      * @param string $gateway
      * @return int O ID da nova transação.
      */
-    public function create($customerId, $planId, $amount, $gateway = 'infinitepay') {
+    public function create($customerId, $planId, $amount, $gateway = 'infinitepay', $simulationData = []) {
         try {
-            $stmt = $this->db->prepare(
-                "INSERT INTO transactions (customer_id, plan_id, amount, gateway, payment_status)
-                 VALUES (?, ?, ?, ?, 'pending')"
-            );
-            $stmt->execute([$customerId, $planId, $amount, $gateway]);
+            $sql = "INSERT INTO transactions (customer_id, plan_id, amount, gateway, payment_status,
+                        sim_client_ip, sim_client_mac, sim_link_orig, sim_link_login_only, sim_chap_id, sim_chap_challenge)
+                    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)";
+
+            $stmt = $this->db->prepare($sql);
+
+            $params = [
+                $customerId,
+                $planId,
+                $amount,
+                $gateway,
+                $simulationData['client_ip'] ?? null,
+                $simulationData['client_mac'] ?? null,
+                $simulationData['link_orig'] ?? null,
+                $simulationData['link_login_only'] ?? null,
+                $simulationData['chap_id'] ?? null,
+                $simulationData['chap_challenge'] ?? null
+            ];
+
+            $stmt->execute($params);
             return $this->db->lastInsertId();
         } catch (PDOException $e) {
             error_log("Erro ao criar transação: " . $e->getMessage());

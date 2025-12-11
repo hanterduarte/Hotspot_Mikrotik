@@ -62,6 +62,10 @@
                 <input type="text" name="link_orig" id="link_orig" value="http://www.google.com/">
             </div>
             <div class="form-group">
+                <label for="link_login_only">Link de Login (link-login-only):</label>
+                <input type="text" name="link_login_only" id="link_login_only" value="http://10.0.0.1/login?dst=http%3A%2F%2Fwww.google.com%2F">
+            </div>
+            <div class="form-group">
                 <label for="chap_id">Chap ID:</label>
                 <input type="text" name="chap_id" id="chap_id" value="ab">
             </div>
