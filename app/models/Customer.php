@@ -43,4 +43,20 @@ class Customer {
             return 0;
         }
     }
+
+    /**
+     * Busca um cliente pelo seu ID.
+     * @param int $id O ID do cliente.
+     * @return mixed Os dados do cliente ou false se não for encontrado.
+     */
+    public function findById($id) {
+        try {
+            $stmt = $this->db->prepare("SELECT * FROM customers WHERE id = ?");
+            $stmt->execute([$id]);
+            return $stmt->fetch();
+        } catch (PDOException $e) {
+            error_log("Erro ao buscar cliente por ID: " . $e->getMessage());
+            return false;
+        }
+    }
 }

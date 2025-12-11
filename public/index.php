@@ -17,6 +17,8 @@ $router = new Router();
 $router->add('GET', '', 'HomeController@index'); // Rota para a página inicial
 $router->add('GET', '/', 'HomeController@index'); // Rota para a página inicial
 $router->add('POST', 'payment/process', 'PaymentController@process'); // Rota para processar o pagamento
+$router->add('POST', 'webhook/infinitypay', 'WebhookController@handleInfinityPay'); // Rota para o webhook
+$router->add('GET', 'payment/success', 'PaymentController@success'); // Rota para a página de sucesso
 
 // Captura a rota da requisição
 $uri = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/');

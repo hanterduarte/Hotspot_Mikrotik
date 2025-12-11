@@ -5,6 +5,7 @@ require_once ROOT_PATH . '/app/controllers/BaseController.php';
 require_once ROOT_PATH . '/app/models/Plan.php';
 require_once ROOT_PATH . '/app/models/Customer.php';
 require_once ROOT_PATH . '/app/models/Transaction.php';
+require_once ROOT_PATH . '/app/models/HotspotUser.php';
 require_once ROOT_PATH . '/app/services/InfinityPay.php';
 
 class PaymentController extends BaseController {
@@ -88,5 +89,32 @@ class PaymentController extends BaseController {
                filter_var($data['email'], FILTER_VALIDATE_EMAIL) &&
                preg_match('/^[0-9]{10,11}$/', $data['phone']) &&
                preg_match('/^[0-9]{11}$/', $data['cpf']);
+    }
+
+    /**
+     * Exibe a página de sucesso após o pagamento.
+     */
+    public function success() {
+        // Pega o ID da transação da URL
+        $transactionId = isset($_GET['external_reference']) ? (int)$_GET['external_reference'] : 0;
+
+        if (!$transactionId) {
+            // Lida com o caso em que o ID da transação não é fornecido
+            $this->view('payment/failure', ['message' => 'ID da transação não encontrado.']);
+            return;
+        }
+
+        // Busca as credenciais do usuário do hotspot
+        $hotspotUserModel = new HotspotUser();
+        $hotspotUser = $hotspotUserModel->findByTransactionId($transactionId);
+
+        if ($hotspotUser) {
+            // Se o usuário foi encontrado, exibe a página de sucesso com as credenciais
+            $this->view('payment/success', ['user' => $hotspotUser]);
+        } else {
+            // Se o usuário ainda não foi criado (webhook pode estar atrasado),
+            // exibe uma mensagem de pendente.
+            $this->view('payment/pending', ['message' => 'Seu pagamento foi aprovado! Estamos gerando suas credenciais.']);
+        }
     }
 }
