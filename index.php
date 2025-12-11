@@ -623,13 +623,9 @@ $plans = $stmt->fetchAll();
             </div>
             </div>
         <div class="footer">
-<<<<<<< Updated upstream
-            &copy; 2025 WiFi Barato. Todos os direitos reservados.
-=======
             <img src="img/wiguest_logo_small.png" alt="Logo Wi Guest Portal" class="footer-logo">
             <span> Wi Guest Portal &copy; 2025 Todos os direitos reservados. - Sistema para Gestão de Acessos. </span>
         </div>
->>>>>>> Stashed changes
         </div>
     </div>
     
