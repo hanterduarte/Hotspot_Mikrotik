@@ -118,7 +118,7 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         // 6. ATUALIZAR STATUS DA TRANSAÇÃO (Usando a estrutura de backup)
         $stmt = $db->prepare("
             UPDATE transactions 
-            SET payment_status = ?,
+            SET payment_status = 'approved',
                 infinitypay_order_id = ?,
                 paid_at = NOW(),
                 gateway = 'infinitepay_checkout',

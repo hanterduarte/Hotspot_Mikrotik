@@ -9,6 +9,7 @@ class MikrotikAPI {
     private $port;
     private $user;
     private $pass;
+    private $hotspotServer;
     private $api = null; 
     private $connected = false;
     private $configError = null; 
@@ -18,6 +19,7 @@ class MikrotikAPI {
         $this->port = getSetting('mikrotik_port', 0); 
         $this->user = getSetting('mikrotik_user', null);
         $this->pass = getSetting('mikrotik_password', null);
+        $this->hotspotServer = getSetting('hotspot_server', 'all');
         
         if (empty($this->host) || empty($this->user) || empty($this->pass) || $this->port == 0) {
             $this->configError = "Credenciais do MikroTik incompletas na tabela settings.";
