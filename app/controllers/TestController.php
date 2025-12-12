@@ -61,6 +61,9 @@ class TestController extends BaseController {
             // Cria a transação com os dados de simulação
             $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price'], 'test_gateway', $simulationData);
 
+            // Armazena na sessão para garantir que não se perca
+            $_SESSION['test_transaction_id'] = $transactionId;
+
             // Redireciona para a página de simulação do webhook
             header('Location: /test/simulate?transaction_id=' . $transactionId);
             exit;
@@ -83,7 +86,8 @@ class TestController extends BaseController {
      * Passo 4: Executa a simulação do webhook de pagamento aprovado.
      */
     public function runWebhookSimulation() {
-        $transactionId = (int)$_GET['transaction_id'];
+        // Tenta obter da URL, senão, da sessão
+        $transactionId = (int)($_GET['transaction_id'] ?? $_SESSION['test_transaction_id'] ?? 0);
 
         if (!$transactionId) {
             $this->view('payment/failure', ['message' => 'ID da transação para simulação não encontrado.']);
@@ -112,6 +116,9 @@ class TestController extends BaseController {
                 'link_orig' => $transactionData['sim_link_orig'] ?? '',
                 'link_login_only' => $transactionData['sim_link_login_only'] ?? ''
             ];
+
+            // Limpa a sessão após o uso
+            unset($_SESSION['test_transaction_id']);
 
             // Renderiza a página de resultado com o iframe
             $this->view('test/result', $data);

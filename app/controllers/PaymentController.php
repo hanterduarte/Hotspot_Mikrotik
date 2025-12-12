@@ -46,8 +46,24 @@ class PaymentController extends BaseController {
                 return;
             }
 
-            // 3. Cria a transação com status 'pending'
-            $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price']);
+            // 3. Coleta os dados do Mikrotik do input
+            $mikrotikData = [
+                'client_ip' => $input['client_ip'] ?? null,
+                'client_mac' => $input['client_mac'] ?? null,
+                'link_orig' => $input['link_orig'] ?? null,
+                'link_login_only' => $input['link_login_only'] ?? null,
+                'chap_id' => $input['chap_id'] ?? null,
+                'chap_challenge' => $input['chap_challenge'] ?? null
+            ];
+
+            // Salva os links do Mikrotik na sessão para usar na página de sucesso
+            $_SESSION['mikrotik_links'] = [
+                'linkLogin' => $mikrotikData['link_login_only'],
+                'linkOrig' => $mikrotikData['link_orig']
+            ];
+
+            // 4. Cria a transação com status 'pending' e dados do Mikrotik
+            $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price'], 'infinity_pay', $mikrotikData);
             if (!$transactionId) {
                 echo json_encode(['success' => false, 'message' => 'Erro ao criar a transação.']);
                 return;
