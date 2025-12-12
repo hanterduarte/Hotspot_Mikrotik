@@ -85,11 +85,11 @@ class TestController extends BaseController {
         }
 
         try {
-            // Constrói um payload de webhook fictício
+            // Constrói um payload de webhook realista, espelhando a InfinityPay
             $simulatedPayload = json_encode([
                 'order_nsu' => $transactionId,
-                'status' => 'PAID',
-                'transaction_id' => 'sim_' . time()
+                'transaction_nsu' => 'sim_' . time() // Chave correta
+                // O campo 'status' é omitido, assim como no webhook real
             ]);
 
             // Cria uma instância do WebhookController e chama a lógica de processamento
