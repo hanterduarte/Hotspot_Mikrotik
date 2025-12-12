@@ -2,7 +2,6 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="5"> <!-- Atualiza a página a cada 5 segundos -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Processando seu Acesso</title>
     <link rel="icon" type="image/png" href="/img/favicon.png">
