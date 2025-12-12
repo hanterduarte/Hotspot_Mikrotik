@@ -18,10 +18,10 @@
         <h1>Simulador de Compra - Passo 2</h1>
         <div class="transaction-info">
             <p>Transação pendente criada com sucesso!</p>
-            <strong>ID da Transação: <?php echo htmlspecialchars($_GET['transaction_id']); ?></strong>
+            <strong>ID da Transação: <?php echo htmlspecialchars($transactionId); ?></strong>
         </div>
         <p>Agora, clique no botão abaixo para simular o recebimento de um pagamento aprovado via webhook.</p>
-        <a href="/test/simulate-webhook?transaction_id=<?php echo htmlspecialchars($_GET['transaction_id']); ?>" class="btn">
+        <a href="/test/simulate-webhook?transaction_id=<?php echo htmlspecialchars($transactionId); ?>" class="btn">
             Simular Pagamento Aprovado
         </a>
     </div>
