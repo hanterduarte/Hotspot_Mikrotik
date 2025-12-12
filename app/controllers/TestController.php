@@ -48,18 +48,8 @@ class TestController extends BaseController {
             // Cria/obtém o cliente
             $customerId = $customerModel->createOrGet($customerData);
 
-            // Coleta os dados de simulação
-            $simulationData = [
-                'client_ip' => $_POST['client_ip'],
-                'client_mac' => $_POST['client_mac'],
-                'link_orig' => $_POST['link_orig'],
-                'link_login_only' => $_POST['link_login_only'],
-                'chap_id' => $_POST['chap_id'],
-                'chap_challenge' => $_POST['chap_challenge']
-            ];
-
-            // Cria a transação com os dados de simulação
-            $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price'], 'test_gateway', $simulationData);
+            // Cria a transação com um gateway de teste
+            $transactionId = $transactionModel->create($customerId, $plan['id'], $plan['price'], 'test_gateway');
 
             // Armazena na sessão para garantir que não se perca
             $_SESSION['test_transaction_id'] = $transactionId;
@@ -98,7 +88,7 @@ class TestController extends BaseController {
             // Constrói um payload de webhook fictício
             $simulatedPayload = json_encode([
                 'order_nsu' => $transactionId,
-                'status' => 'PAID', // Usa o status correto
+                'status' => 'PAID',
                 'transaction_id' => 'sim_' . time()
             ]);
 
@@ -106,21 +96,16 @@ class TestController extends BaseController {
             $webhookController = new WebhookController();
             $webhookController->processWebhookPayload($simulatedPayload);
 
-            // Recupera a transação atualizada para obter os dados de simulação
-            $transactionModel = new Transaction();
-            $transactionData = $transactionModel->findById($transactionId);
-
-            // Prepara os dados para a página de resultado
-            $data = [
-                'transactionId' => $transactionId,
-                'link_orig' => $transactionData['sim_link_orig'] ?? '',
-                'link_login_only' => $transactionData['sim_link_login_only'] ?? ''
-            ];
-
             // Limpa a sessão após o uso
             unset($_SESSION['test_transaction_id']);
 
             // Renderiza a página de resultado com o iframe
+            // Em um cenário real, os links viriam de algum lugar, aqui simplificamos
+            $data = [
+                'transactionId' => $transactionId,
+                'link_orig' => '#', // Link simplificado
+                'link_login_only' => '#' // Link simplificado
+            ];
             $this->view('test/result', $data);
 
         } catch (Exception $e) {

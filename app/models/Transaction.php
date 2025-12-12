@@ -16,43 +16,19 @@ class Transaction {
      * @param string $gateway
      * @return int O ID da nova transação.
      */
-    public function create($customerId, $planId, $amount, $gateway = 'infinity_pay', $mikrotikData = []) {
+    public function create($customerId, $planId, $amount, $gateway = 'infinity_pay') {
         try {
-            // Campos base da transação
-            $columns = [
-                'customer_id' => $customerId,
-                'plan_id' => $planId,
-                'amount' => $amount,
-                'gateway' => $gateway,
-                'payment_status' => 'pending'
-            ];
-
-            // Mapeia os dados do Mikrotik para os nomes das colunas no banco
-            $mikrotikMapping = [
-                'client_ip' => 'sim_client_ip',
-                'client_mac' => 'sim_client_mac',
-                'link_orig' => 'sim_link_orig',
-                'link_login_only' => 'sim_link_login_only',
-                'chap_id' => 'sim_chap_id',
-                'chap_challenge' => 'sim_chap_challenge'
-            ];
-
-            // Adiciona os dados do Mikrotik à query apenas se eles existirem
-            foreach ($mikrotikMapping as $inputKey => $dbColumn) {
-                if (!empty($mikrotikData[$inputKey])) {
-                    $columns[$dbColumn] = $mikrotikData[$inputKey];
-                }
-            }
-
-            // Constrói a query SQL dinamicamente
-            $columnNames = implode(', ', array_keys($columns));
-            $placeholders = implode(', ', array_fill(0, count($columns), '?'));
-            $sql = "INSERT INTO transactions ($columnNames) VALUES ($placeholders)";
+            $sql = "INSERT INTO transactions (customer_id, plan_id, amount, gateway, payment_status)
+                    VALUES (?, ?, ?, ?, 'pending')";
 
             $stmt = $this->db->prepare($sql);
 
-            // Pega apenas os valores para o execute()
-            $params = array_values($columns);
+            $params = [
+                $customerId,
+                $planId,
+                $amount,
+                $gateway
+            ];
 
             $stmt->execute($params);
             return $this->db->lastInsertId();

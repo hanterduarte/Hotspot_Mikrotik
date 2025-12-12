@@ -47,33 +47,6 @@
                 <input type="text" name="cpf" id="cpf" value="12345678901" required pattern="[0-9]{11}">
             </div>
 
-            <hr style="margin: 20px 0;">
-            <h3 style="color: #555;">Parâmetros de Simulação Mikrotik (Opcional)</h3>
-            <div class="form-group">
-                <label for="client_ip">IP do Cliente:</label>
-                <input type="text" name="client_ip" id="client_ip" value="10.0.0.254">
-            </div>
-            <div class="form-group">
-                <label for="client_mac">MAC do Cliente:</label>
-                <input type="text" name="client_mac" id="client_mac" value="00:11:22:33:44:55">
-            </div>
-            <div class="form-group">
-                <label for="link_orig">Link de Origem (link-orig):</label>
-                <input type="text" name="link_orig" id="link_orig" value="http://www.google.com/">
-            </div>
-            <div class="form-group">
-                <label for="link_login_only">Link de Login (link-login-only):</label>
-                <input type="text" name="link_login_only" id="link_login_only" value="http://10.0.0.1/login?dst=http%3A%2F%2Fwww.google.com%2F">
-            </div>
-            <div class="form-group">
-                <label for="chap_id">Chap ID:</label>
-                <input type="text" name="chap_id" id="chap_id" value="ab">
-            </div>
-             <div class="form-group">
-                <label for="chap_challenge">Chap Challenge:</label>
-                <input type="text" name="chap_challenge" id="chap_challenge" value="1234567890abcdef">
-            </div>
-
             <button type="submit" class="btn">Criar Transação Pendente</button>
         </form>
     </div>
