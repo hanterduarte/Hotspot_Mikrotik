@@ -235,7 +235,7 @@ set_exception_handler(function($exception) {
  * @param string $body O corpo do email (HTML é recomendado).
  * @return bool True se o envio foi bem-sucedido, False caso contrário.
  */
-function sendEmail($to, $subject, $body, $inlineAttachment = null) {
+function sendEmail($to, $subject, $body) {
     // Verifica se o envio por email está ativado nas configurações do DB
     if (getSetting('enable_email_sending', 'false') !== 'true') {
         logEvent('email_info', "Email de credenciais não enviado (Desabilitado na tabela settings).");
@@ -266,12 +266,6 @@ function sendEmail($to, $subject, $body, $inlineAttachment = null) {
         // Configurações do Remetente
         $mail->setFrom('wifibarato@maiscoresed.com.br', 'Wi-Fi Barato by Wi Guest Portal');
         $mail->addAddress($to);
-
-        // Adiciona a imagem como anexo inline (CID)
-        if ($inlineAttachment && file_exists($inlineAttachment)) {
-            // O Content-ID (cid) 'logo_cid' será usado no HTML (src="cid:logo_cid")
-            $mail->addEmbeddedImage($inlineAttachment, 'logo_cid', 'wiguest_logo_small_rox.png');
-        }
         
         // Conteúdo do E-mail
         $mail->isHTML(true);
@@ -292,7 +286,7 @@ function sendEmail($to, $subject, $body, $inlineAttachment = null) {
 /**
  * Função para formatar e enviar o email com as credenciais.
  */
-function sendHotspotCredentialsEmail($email, $customer_name, $username, $password, $expiresAt, $planName) {
+function sendHotspotCredentialsEmail($email, $customer_name ,$username, $password, $expiresAt, $planName) {
     $subject = "Suas Credenciais WiFi - Pagamento Aprovado!";
     
     // Formata a data de expiração
@@ -300,96 +294,32 @@ function sendHotspotCredentialsEmail($email, $customer_name, $username, $passwor
         ? date('d/m/Y H:i:s', strtotime($expiresAt)) 
         : 'Seu acesso é ilimitado.';
 
-    // 🚨 NOVO: Caminho absoluto para a imagem no servidor
-    // Atenção: Use barras normais (/) no caminho do Windows em PHP.
-    $logoPath = 'C:/xampp/htdocs/hotspot/img/wiguest_logo_small_rox.png'; 
-
     // Monta o corpo em HTML
     $body = "
-        <!DOCTYPE html>
-        <html lang='pt-BR'>
+        <html>
         <head>
-            <meta charset='UTF-8'>
-            <meta name='viewport' content='width=device-width, initial-scale=1.0'>
             <title>$subject</title>
-            <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                .header h1 { margin: 0; font-size: 24px; }
-                .content { background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; }
-                .credentials-box { background: #f4f4f4; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea; margin: 20px 0; }
-                .credentials-box p { margin: 10px 0; font-size: 16px; }
-                .credentials-box strong { color: #667eea; }
-                .instructions-box { background: #e8f5e9; padding: 20px; border-radius: 8px; border-left: 4px solid #4caf50; margin: 20px 0; }
-                .instructions-box h3 { margin-top: 0; color: #2e7d32; font-size: 18px; }
-                .instructions-box ol { margin: 10px 0; padding-left: 20px; }
-                .instructions-box li { margin: 8px 0; }
-                .network-name { background: #667eea; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-                .alert-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 8px; margin: 20px 0; }
-                .alert-box p { margin: 0; color: #856404; }
-                .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }
-                .button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-            </style>
         </head>
         <body>
-            <div class='container'>
-                <div class='header'>
-                    <h1>Acesso WiFi Liberado!</h1>
-                </div>
-                
-                <div class='content'>
-                    <p>Olá <strong>$customer_name</strong>,</p>
-                    
-                    <p>Seja muito bem-vindo(a) à rede <strong>Wi-Fi Barato</strong>!</p>
-                    
-                    <p>Seu pagamento foi aprovado com sucesso e seu acesso ao plano <strong style='color: #667eea;'>$planName</strong> está ativo.</p>
-                    
-                    <p>Use as credenciais abaixo para se conectar à nossa rede:</p>
-                    
-                    <div class='credentials-box'>
-                        <p><strong> Usuário:</strong> $username</p>
-                        <p><strong> Senha:</strong> $password</p>
-                        <p><strong> Expira em:</strong> $expiresText</p>
-                    </div>
-                    
-                    <div class='instructions-box'>
-                        <h3> Como se conectar:</h3>
-                        <ol>
-                            <li>Abra as <strong>configurações de Wi-Fi</strong> no seu dispositivo (celular, notebook, tablet).</li>
-                            <li>Selecione a rede com o nome <span class='network-name'>WiFi_Barato</span>.</li>
-                            <li>Insira o <strong>Usuário</strong> e a <strong>Senha</strong> fornecidos acima quando solicitado no formulário de login.</li>
-                            <li>Pronto! Você estará conectado(a) à nossa rede. </li>
-                        </ol>
-                    </div>
-                    
-                    <div class='alert-box'>
-                        <p><strong> Observação de Segurança:</strong> Por favor, mantenha suas credenciais seguras e não as compartilhe com terceiros.</p>
-                    </div>
-                    
-                    <p style='text-align: center; margin-top: 30px;'>
-                        <strong>Esperamos que você tenha uma ótima experiência conosco!</strong>
-                    </p>
-                </div>
-                
-                <div class='footer'>
-                    <p>Obrigado por utilizar nosso serviço!</p>
-                    <p><strong>Wi-Fi Barato</strong> by Wi Guest Portal</p>
-                    
-                        <p style='text-align: center; margin-top: 10px;'>
-                        <img src='cid:logo_cid' alt='WiGuest Logo' style='max-width: 150px; height: auto;'>
-                    </p>
-
-                    <p style='font-size: 12px; color: #999; margin-top: 20px;'>
-                        Este é um e-mail automático. Por favor, não responda.
-                    </p>
-                </div>
+            <h1>Acesso WiFi Liberado!</h1>
+            <p>Olá $customer_name,</p>
+            <p>Seja muito bem-vindo(a) à rede Wi-fi Barato !</p>
+            <p>Seu pagamento foi aprovado e seu acesso ao plano <strong>$planName</strong> está ativo.</p>
+            <p>Use as credenciais abaixo para se conectar à nossa rede:</p>
+            
+            <div style='background: #f4f4f4; padding: 15px; border-radius: 5px; border: 1px solid #ddd; max-width: 400px;'>
+                <p><strong>Usuário:</strong> $username</p>
+                <p><strong>Senha:</strong> $password</p>
+                <p><strong>Expira em:</strong> $expiresText</p>
             </div>
+            
+            <p style='margin-top: 20px;'>Obrigado por utilizar nosso serviço!</p>
+            <p>Atenciosamente,<br>Wi-Fi Barato by Wi Guest Portal</p>
         </body>
         </html>
     ";
 
-    return sendEmail($email, $subject, $body, $logoPath);
+    return sendEmail($email, $subject, $body);
 }
 
 ?>

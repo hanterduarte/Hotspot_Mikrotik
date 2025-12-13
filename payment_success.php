@@ -346,8 +346,22 @@ if ($externalReference) {
                 // Chama o endpoint para verificar se o Webhook já criou as credenciais
                 const response = await fetch(`check_payment_status.php?payment_id=${transactionId}`);
                 const result = await response.json();
+                
+                // 🟢 AJUSTE DE VERIFICAÇÃO DE CREDENCIAIS (Para suportar estrutura plana ou aninhada em 'data')
+                // 1. Tenta pegar as credenciais diretamente (result.credentials)
+                let credentialsReady = result.credentials;
+                
+                // 2. Se não encontrou, tenta pegar em result.data.credentials
+                if (!credentialsReady && result.data) {
+                    credentialsReady = result.data.credentials;
+                }
+                
+                const isApprovedStatus = (result.status === 'approved' || result.status === 'paid' || result.status === 'success');
+                // Se o status estiver em 'data' (mais comum em APIs)
+                const isApprovedStatusInScope = (result.data && (result.data.status === 'approved' || result.data.status === 'paid' || result.data.status === 'success'));
 
-                if (result.success && (result.status === 'approved' || result.status === 'paid' || result.status === 'success') && result.credentials) {
+
+                if (result.success && (isApprovedStatus || isApprovedStatusInScope) && credentialsReady) {
                     clearInterval(checkInterval);
                     // Recarregar a página para buscar as novas credenciais E as variáveis do Mikrotik do DB
                     window.location.reload(); 

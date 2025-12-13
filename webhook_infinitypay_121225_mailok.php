@@ -147,7 +147,6 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
             hu.password, 
             hu.expires_at, 
             c.email AS customer_email,
-            c.name AS customer_name,
             p.name AS plan_name
         FROM hotspot_users hu
         JOIN transactions t ON hu.transaction_id = t.id
@@ -164,7 +163,6 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         // 8. ENVIAR E-MAIL COM AS CREDENCIAIS (CORREÇÃO NA CHAMADA)
         $emailSent = sendHotspotCredentialsEmail(
         $full_data['customer_email'],  // ✅ Email do cliente
-        $full_data['customer_name'],   // ✅ Nome do cliente
         $full_data['username'],         // ✅ Usuário gerado
         $full_data['password'],         // ✅ Senha gerada
         $full_data['expires_at'],       // ✅ Data de expiração

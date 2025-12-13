@@ -70,8 +70,10 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         // 5. ATIVAR CLIENTE (Criação de Usuário Hotspot no Mikrotik)
         $mt = new MikrotikAPI();
         $provisionResult = $mt->provisionHotspotUser(
-            $transaction['plan_id'], 
-            $transaction['client_ip'] 
+            $transaction['plan_id'],
+            $transactionId,  // ID da venda/transação
+            $transaction['client_ip'] ?? '',
+            $transaction['client_mac'] ?? ''
         );
 
         if (!$provisionResult['success']) {
@@ -83,37 +85,40 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
         }
         
         // ======================================================================
-        // CÁLCULO E INSERÇÃO DE CREDENCIAIS (INCLUSÃO DO customer_id)
+        // CÁLCULO E INSERÇÃO DE CREDENCIAIS (CORRIGIDO: Cálculo da Expiração)
         // ======================================================================
         $durationSeconds = intval($plan['duration_seconds']);
         $hasDuration = $durationSeconds > 0;
-        
-        // COLUNAS: Incluindo customer_id e usando mikrotik_profile (Correção do erro 'profile')
-        $insertColumns = "transaction_id, plan_id, customer_id, username, password, mikrotik_profile, created_at"; 
-        $insertPlaceholders = "?, ?, ?, ?, ?, ?, NOW()";
-        
-        // Parâmetros base
+
+        $expiresAt = NULL;
+        if ($hasDuration) {
+            // Calcula a data e hora futura no PHP e formata para o MySQL (YYYY-MM-DD HH:MM:SS)
+            $expiresAt = date('Y-m-d H:i:s', time() + $durationSeconds);
+        }
+
+        // COLUNAS: expires_at é agora sempre incluída na estrutura SQL
+        $insertColumns = "transaction_id, plan_id, customer_id, username, password, mikrotik_profile, expires_at, created_at"; 
+        $insertPlaceholders = "?, ?, ?, ?, ?, ?, ?, NOW()";
+
         $params = [
             $transactionId,
             $transaction['plan_id'],
-            $transaction['customer_id'], // <--- O ID que falhou na chave estrangeira
+            $transaction['customer_id'],
             $provisionResult['username'],
             $provisionResult['password'],
-            $provisionResult['mikrotik_profile']
+            $provisionResult['mikrotik_profile'],
+            $expiresAt // <-- A data já calculada ou NULL
         ];
         
-        // Inclusão Condicional do expires_at
-        if ($hasDuration) {
-            $insertColumns .= ", expires_at";
-            $insertPlaceholders .= ", DATE_ADD(NOW(), INTERVAL ? SECOND)";
-            $params[] = $durationSeconds; 
-        }
-        // ======================================================================
+        // 6b. Salvar CREDENCIAIS no banco de dados (Tabela hotspot_users)
+        $insertSql = "INSERT INTO hotspot_users ({$insertColumns}) VALUES ({$insertPlaceholders})";
+        $stmt = $db->prepare($insertSql);
+        $stmt->execute($params);
 
         // 6. ATUALIZAR STATUS DA TRANSAÇÃO (Usando a estrutura de backup)
         $stmt = $db->prepare("
             UPDATE transactions 
-            SET payment_status = 'success',
+            SET payment_status = 'approved',
                 infinitypay_order_id = ?,
                 paid_at = NOW(),
                 gateway = 'infinitepay_checkout',
@@ -131,14 +136,17 @@ if ($paymentStatus === 'paid' || $paymentStatus === 'approved') {
             $transactionNsu,     // 4. JSON_SET
             $transactionId       // 5. WHERE id
         ]);
-
-
-        // 6b. Salvar CREDENCIAIS no banco de dados (Tabela hotspot_users)
-        $insertSql = "INSERT INTO hotspot_users ({$insertColumns}) VALUES ({$insertPlaceholders})";
-        $stmt = $db->prepare($insertSql);
-        $stmt->execute($params);
         
         // 7. REMOVER BYPASS TEMPORÁRIO (Se aplicável)
+
+        // 8. ENVIAR E-MAIL COM AS CREDENCIAIS (NOVA IMPLEMENTAÇÃO)
+        sendHotspotCredentialsEmail(
+            $data['customer_email'],       // Email do cliente
+            $provisionResult['username'],  // Usuário gerado
+            $provisionResult['password'],  // Senha gerada
+            $expiresAt,                    // Data de expiração
+            $data['plan_name']             // Nome do plano
+        );
 
         $db->commit();
         logEvent('webhook_success', "Pagamento e Provisionamento SUCESSO para TX: $transactionId. Usuário: {$provisionResult['username']}");

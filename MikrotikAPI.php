@@ -97,7 +97,7 @@ class MikrotikAPI {
             'password' => $password,
             'profile' => $profile,
             'limit-uptime' => $uptimeLimit, 
-            'server' => 'hotspot1',
+            'server' => $this->hotspotServer,
             'comment' => $comment
         ]);
 
